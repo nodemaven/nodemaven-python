@@ -1,0 +1,53 @@
+# NodeMaven.
+#
+# `status = "measured"` means this dialect was read off the wire rather than
+# copied out of documentation: every value below was confirmed by raw CONNECT
+# probes on the date recorded. A definition marked `documented` has never been
+# exercised, and the difference matters because a wrong username is invisible -
+# see `notes`.
+label = "NodeMaven"
+status = "measured"
+source = "dashboard proxy generator, plus raw CONNECT probes"
+source_read = "2026-08-12"
+
+# <login>-country-us-sid-abc123-ttl-10m
+prefix = "{login}"
+separator = "-"
+pair_separator = "-"
+session_param = "sid"
+
+host = "gate.nodemaven.com"
+port = 8080
+
+# Returned on the CONNECT reply, so an exit address costs one handshake and no
+# target traffic. Not guaranteed: more than one implementation answers on this
+# name, and only some of them send it, so handle its absence rather than
+# treating the first miss as an error.
+exit_ip_header = "X-Proxy-Exit-IP"
+
+# Confirmed to be recognised. Anything outside this set is refused before a
+# request exists, because the gateway answers an unknown name with 200 and the
+# setting silently dropped.
+known_params = ["country", "region", "city", "isp", "sid", "ttl", "filter",
+                "ipv4", "speed"]
+
+notes = """
+Measured 2026-08-10 by raw CONNECT probes.
+
+Sticky sessions key on the whole recognised parameter set, not on `sid` alone.
+`country=us, sid=A` and `country=us, sid=A, filter=medium` are two different
+sessions; `ttl` does not participate and `filter` does. Adding or removing any
+parameter moves you to another exit without saying so.
+
+Seven inputs, seven reactions, none of which names the cause:
+  bad country          406 Not Acceptable
+  bad region           406 Not Acceptable
+  bad city             500 Internal Server Error
+  bad filter value     407 Proxy Authentication Required
+  bad ttl value        407 Proxy Authentication Required
+  empty value          no reply, the connection hangs about 20 s
+  unknown parameter    200, the parameter is ignored
+
+The two 407 cases are actively misleading - they send you to check credentials
+that are correct. With no `country` the default country is not stable.
+"""
