@@ -1,0 +1,63 @@
+# Publishing without a password.
+#
+# PyPI trusts this workflow directly: GitHub signs a short-lived OIDC token
+# saying which repository, which workflow file and which environment asked, and
+# PyPI checks that against the publisher registered on the project. No API token
+# is stored anywhere, so there is nothing in a settings page to leak and nothing
+# to rotate.
+#
+# It runs on a published release and never on a push. A workflow that uploads on
+# every commit to main turns an ordinary merge into a release, and PyPI refuses a
+# version number that already exists - so the failure would be a red build on a
+# change that had nothing to do with packaging.
+#
+# The build and the upload are separate jobs on purpose. Only the second one
+# holds `id-token: write`, so the step that runs project code cannot ask GitHub
+# for the credential that publishes.
+#
+# The `pypi` environment is restricted to tags matching `v*`, so a run started
+# from a branch cannot reach it and cannot obtain the token even if this file
+# were edited on that branch. The consequence is a rule to remember rather than
+# a setting to admire: **release from a `vX.Y.Z` tag**. A release cut from a
+# differently named tag builds and then stops at the deployment gate.
+name: publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade build
+      - run: python -m build
+      # twine is not needed to upload here, but it is what says whether the
+      # README will render on the package page. An unrenderable description is
+      # accepted by PyPI and shown as raw text, which is only discovered by
+      # looking - and by then the version number is spent.
+      - run: python -m pip install --upgrade twine && python -m twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

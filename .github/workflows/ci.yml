@@ -1,0 +1,46 @@
+# The test suite, on every Python this package claims to support.
+#
+# It installs the package and runs the tests against the installed copy rather
+# than against `src/`. That is the whole reason this is worth running: the two
+# things most likely to break a release are invisible from the source tree.
+# `data/providers/*.toml` is package data, and a wheel that omits it imports
+# fine and then fails on the first `load()`; `tomli` is a dependency only below
+# 3.11, so a missing marker is invisible on a modern interpreter and breaks 3.9
+# and 3.10 alone. Both were checked by hand in a clean virtualenv before 0.1.0
+# went out - this is that check, on five interpreters, without the hand.
+#
+# The suite is offline in full and strips the gateway variables from the
+# environment, so it needs no credentials and cannot spend traffic.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        os: [ubuntu-latest]
+        # One Windows job, because the package is developed there and a path
+        # separator or an encoding difference would otherwise be found by a
+        # user. Not the whole grid: it buys little and costs the queue.
+        include:
+          - python-version: "3.11"
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install . pytest
+      - run: python -m pytest -q
