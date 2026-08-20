@@ -56,8 +56,17 @@ with sync_playwright() as p:
 One `Proxy` is one identity. Pin it to a sticky session:
 
 ```python
-held = proxy.session("order-4417")
+held = proxy.session("order4417")
 ```
+
+**A session id cannot contain the character the gateway separates parameters
+with**, which for this one is `-`, and passing one raises rather than connecting.
+That is measured and not a precaution: on 2026-08-20 a probe opened tunnels with
+`sid-order8e3bf9-4417` and with `sid-order8e3bf9`, four rounds each, interleaved,
+and both landed on **one exit address** while a third arm spelled
+`sid-order8e3bf94417` held a different one throughout. The gateway cuts the value
+at the separator and reads the rest as something else, so every order id
+beginning `order` would quietly share one session and one exit.
 
 **The session key is the whole parameter set, not the session id.**
 `country=us, sid=A` and `country=us, sid=A, filter=medium` are two different

@@ -113,9 +113,11 @@ class TestMovingIsANewIdentity:
         # `order-4417` is the obvious thing to use as a session key and this
         # dialect cannot carry it: separator and pair separator are both "-",
         # so `sid-order-4417` reads as sid=order followed by a parameter named
-        # 4417. Refusing is inference from the dialect rather than a measured
-        # gateway reply - see the open question in CLAUDE.md - and it errs
-        # towards a loud error over a silently different exit.
+        # 4417. Measured 2026-08-20 rather than assumed: tunnels opened with
+        # `sid-order<x>-4417` and with `sid-order<x>` landed on one exit across
+        # four interleaved rounds each, while `sid-order<x>4417` held another
+        # one - so the gateway cuts the tail off and every order id beginning
+        # `order` would silently share a session.
         with pytest.raises(ParamError, match="cannot carry"):
             Proxy(country="us", **CREDS).session("order-4417")
 
