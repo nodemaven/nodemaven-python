@@ -1,4 +1,38 @@
+<div align="center">
+
+<!-- Absolute, and pointing at `nodemaven/.github` rather than at this repository,
+     for two separate reasons.
+     Absolute: this file is the PyPI long description, and PyPI resolves nothing
+     relative - a relative src is a broken image on the package page.
+     `.github`: it is the org's only public repository as of 2026-08-25, so its raw
+     URL answers 200 to a logged-out visitor. This repository is internal and its
+     own raw URL answers 404, measured the same day. Point the src here and the
+     package page shows a broken image to everyone who is not signed in.
+     Verified with readme_renderer (the renderer PyPI itself runs): `div align`,
+     `img src`, `height` and the badges all survive its sanitiser.
+     Switch the src to a relative path only after this repository is public. -->
+<a href="https://github.com/nodemaven"><img src="https://raw.githubusercontent.com/nodemaven/.github/main/profile/assets/nodemaven-mark.svg" alt="NodeMaven" height="56"></a>
+
 # nodemaven
+
+**Builds the proxy username a gateway expects, and refuses the input it would silently drop.**
+
+<!-- All three read live off PyPI, so none of them can drift from the release.
+     Checked 2026-08-25: v0.1.1, "3.9 | 3.10 | 3.11 | 3.12 | 3.13", MIT.
+     No CI badge here: shields.io cannot see a workflow in an internal repository
+     and would render "inaccessible" on a public package page. -->
+
+[![pypi](https://img.shields.io/pypi/v/nodemaven?style=flat-square)](https://pypi.org/project/nodemaven/)
+[![python](https://img.shields.io/pypi/pyversions/nodemaven?style=flat-square)](https://pypi.org/project/nodemaven/)
+<!-- Absolute, not `](LICENSE)`. A relative href resolves against
+     pypi.org/project/nodemaven/ on the package page and 404s there; it was the one
+     dead link readme_renderer showed in this file. The repository's own LICENSE is
+     not linkable either while the repository is internal. -->
+[![license](https://img.shields.io/pypi/l/nodemaven?style=flat-square)](https://opensource.org/licenses/MIT)
+
+[Quickstart](#quickstart) · [Sticky sessions](#sticky-sessions) · [Why the validation is the point](#why-the-validation-is-the-point) · [What it does not do](#what-this-library-does-not-do) · [Docs](https://docs.nodemaven.com?utm_source=github&utm_medium=sdk_python&utm_campaign=readme)
+
+</div>
 
 Build and validate proxy connection strings.
 
@@ -11,6 +45,20 @@ pip install nodemaven
 ```
 
 ## Quickstart
+
+<!-- This paragraph exists because the snippet below is the first thing an outside
+     developer runs, it opens a real socket, and `your-login` is not something they
+     can guess. Without it the first result of the quickstart is a bare 407 and no
+     indication of what to do about it. Both links checked 200 on 2026-08-25. -->
+
+`login` and `password` are the **Proxy Username and Proxy Password** assigned under
+Proxy Setup in the [dashboard](https://dashboard.nodemaven.com) - a separate pair from
+the account you sign in with. The other option there is IP whitelisting, which needs no
+credentials in the username at all; both are described in
+[authentication methods](https://docs.nodemaven.com/en/articles/9979031-authentication-methods).
+
+Everything below except this first snippet builds strings offline and runs without an
+account.
 
 ```python
 import requests
