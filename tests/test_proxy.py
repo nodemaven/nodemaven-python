@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from nodemaven import ParamError, Proxy, available, load
+from nodemaven import ParamError, ProviderError, Proxy, available, load, load_file
 
 CREDS = {"login": "acct", "password": "pw", "host": "gate.example.com", "port": 8080}
 
@@ -122,10 +122,88 @@ class TestMovingIsANewIdentity:
             Proxy(country="us", **CREDS).session("order-4417")
 
 
+class TestLegalValues:
+    """The values half of the check, and the reason it is off by default.
+
+    Names are validated against `known_params`; values are validated against
+    `values`, which is empty for the shipped definition. The mechanism is here
+    before the data is, because four language SDKs parse this schema and a key
+    added later is four parsers rather than one data file.
+    """
+
+    def _provider(self, tmp_path, body):
+        path = tmp_path / "p.toml"
+        path.write_text(body, encoding="utf-8")
+        return load_file(path)
+
+    def test_an_unlisted_parameter_is_not_value_checked(self, tmp_path):
+        # No entry means nobody established the legal values, so the caller is
+        # left exactly where they were rather than being refused on a guess.
+        provider = self._provider(tmp_path, """
+label = "P"
+known_params = ["country", "filter"]
+values = { filter = ["medium", "high"] }
+""")
+        assert Proxy(provider=provider, country="whatever", **CREDS).username
+
+    def test_a_value_outside_the_list_is_refused(self, tmp_path):
+        provider = self._provider(tmp_path, """
+label = "P"
+known_params = ["filter"]
+values = { filter = ["medium", "high"] }
+""")
+        with pytest.raises(ParamError, match="not a value"):
+            Proxy(provider=provider, filter="medim", **CREDS)
+
+    def test_a_value_inside_the_list_passes(self, tmp_path):
+        provider = self._provider(tmp_path, """
+label = "P"
+known_params = ["filter"]
+values = { filter = ["medium", "high"] }
+""")
+        assert Proxy(provider=provider, filter="high", **CREDS).username == "acct-filter-high"
+
+    def test_values_for_an_unknown_parameter_are_refused_at_load(self, tmp_path):
+        # Otherwise the entry looks like a working check and never runs.
+        with pytest.raises(ProviderError, match="not in known_params"):
+            self._provider(tmp_path, """
+label = "P"
+known_params = ["country"]
+values = { filter = ["medium"] }
+""")
+
+    def test_an_empty_list_is_refused_at_load(self, tmp_path):
+        # It would mean "every value of this parameter is illegal". Leaving the
+        # entry out is how you say "not established".
+        with pytest.raises(ProviderError, match="non-empty list"):
+            self._provider(tmp_path, """
+label = "P"
+known_params = ["filter"]
+values = { filter = [] }
+""")
+
+
 class TestTheShippedDefinition:
     def test_nodemaven_is_shipped_and_is_measured(self):
         assert "nodemaven" in available()
         assert load("nodemaven").is_measured
+
+    def test_norotate_is_recognised(self):
+        # Read off the vendor's own proxy generator on 2026-08-21, which emits
+        # `...-sid-<id>-filter-medium-norotate-true`. Before that this package
+        # refused it and the message claimed the gateway would drop it.
+        assert "norotate" in load("nodemaven").known_params
+        assert Proxy(country="any", norotate="true", **CREDS).username == (
+            "acct-country-any-norotate-true"
+        )
+
+    def test_no_value_is_checked_for_the_shipped_definition_yet(self):
+        # Guards the difference between "not established" and "nothing is
+        # legal". If this ever fails, somebody filled in `values` - which is
+        # wanted, but the vectors and the README claim have to move with it.
+        provider = load("nodemaven")
+        assert provider.values == {}
+        assert provider.allowed("filter") is None
 
     def test_the_session_parameter_is_asked_for_rather_than_spelled(self):
         # Eleven call sites in the benchmark wrote "sid" directly. It is the name

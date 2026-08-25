@@ -270,5 +270,14 @@ def _validate(provider: Provider, params: Mapping[str, Any]) -> Dict[str, str]:
                 f"Session ids in particular cannot carry a {bad[0]!r} - use "
                 f"{text.replace(bad[0], '')!r} or another character."
             )
+        allowed = provider.allowed(key)
+        if allowed is not None and text not in allowed:
+            raise ParamError(
+                f"{text!r} is not a value {provider.label} accepts for "
+                f"{key!r}. Allowed: {list(allowed)}. This one is worth "
+                f"catching here because the gateway answers a bad value for "
+                f"some parameters with 407 Proxy Authentication Required, "
+                f"which reads as a credentials problem and is not one."
+            )
         out[key] = text
     return out

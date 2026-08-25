@@ -20,7 +20,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, FrozenSet, Optional
+from typing import Any, Dict, FrozenSet, Optional, Tuple
 
 from .errors import ProviderError
 
@@ -61,6 +61,7 @@ class Provider:
     host: Optional[str] = None
     port: Optional[int] = None
     aliases: Dict[str, str] = field(default_factory=dict)
+    values: Dict[str, Tuple[str, ...]] = field(default_factory=dict)
     exit_ip_header: Optional[str] = None
     source: str = ""
     source_read: str = ""
@@ -69,6 +70,20 @@ class Provider:
     def spell(self, name: str) -> str:
         """The name this gateway uses on the wire for a canonical parameter."""
         return self.aliases.get(name, name)
+
+    def allowed(self, name: str) -> Optional[Tuple[str, ...]]:
+        """The legal values for a parameter, or None if they are not known.
+
+        None and an empty tuple are deliberately different answers. None means
+        nobody has established what this gateway accepts, so the value is
+        passed through unchecked - the caller is no worse off than before.
+        Filling this in is a change to a data file and to nothing else, which
+        is the entire reason the key exists before there is anything to put in
+        it: four language SDKs read this schema, and adding a key to it later
+        is four parsers, while adding data to a key they already read is one
+        file.
+        """
+        return self.values.get(name)
 
     @property
     def is_measured(self) -> bool:
@@ -138,6 +153,31 @@ def load_file(path, provider_id: Optional[str] = None) -> Provider:
             f"known_params, so every sticky session would be refused."
         )
 
+    # Legal values, when anybody has established them. A closed list and
+    # nothing else: no regular expressions. A pattern in this file would have
+    # to mean the same thing to Python, Go, Rust and JavaScript, and their
+    # engines disagree on enough of the syntax that the contract would be
+    # about the regex dialect rather than about the gateway. A list of strings
+    # is the same in every language there is.
+    values: Dict[str, Tuple[str, ...]] = {}
+    for name, allowed in (raw.get("values") or {}).items():
+        name = str(name)
+        if name not in known:
+            raise ProviderError(
+                f"{path} lists legal values for {name!r}, which is not in "
+                f"known_params, so that parameter is refused by name before "
+                f"its value is ever looked at."
+            )
+        if not isinstance(allowed, list) or not allowed:
+            raise ProviderError(
+                f"{path} gives the legal values of {name!r} as {allowed!r}. It "
+                f"has to be a non-empty list of strings. Leave the entry out "
+                f"entirely to mean 'nobody has established these' - an empty "
+                f"list would mean 'every value is refused', which is not a "
+                f"thing anybody wants to say."
+            )
+        values[name] = tuple(str(item) for item in allowed)
+
     port = raw.get("port")
     return Provider(
         id=provider_id or path.stem,
@@ -151,6 +191,7 @@ def load_file(path, provider_id: Optional[str] = None) -> Provider:
         host=raw.get("host"),
         port=int(port) if port is not None else None,
         aliases=aliases,
+        values=values,
         exit_ip_header=raw.get("exit_ip_header"),
         source=str(raw.get("source", "")),
         source_read=str(raw.get("source_read", "")),
