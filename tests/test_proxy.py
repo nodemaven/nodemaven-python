@@ -188,14 +188,18 @@ class TestTheShippedDefinition:
         assert "nodemaven" in available()
         assert load("nodemaven").is_measured
 
-    def test_norotate_is_recognised(self):
-        # Read off the vendor's own proxy generator on 2026-08-21, which emits
-        # `...-sid-<id>-filter-medium-norotate-true`. Before that this package
-        # refused it and the message claimed the gateway would drop it.
-        assert "norotate" in load("nodemaven").known_params
-        assert Proxy(country="any", norotate="true", **CREDS).username == (
-            "acct-country-any-norotate-true"
-        )
+    def test_norotate_is_refused(self):
+        # This test asserted the opposite between 2026-08-21 and 2026-08-26, on
+        # the strength of `norotate` appearing in the vendor's proxy generator.
+        # Probed from the VPS on 2026-08-26: with `norotate=true` and no `sid`
+        # the gateway hands out 6 distinct exits in 6 draws, and with a fixed
+        # `sid` and `ttl=1m` it hands out 3 distinct in 3 - the same as a
+        # negative control carrying a name nobody has implemented. It is
+        # answered 200 and dropped, which is the exact failure this package
+        # exists to catch, so it belongs on the refused side.
+        assert "norotate" not in load("nodemaven").known_params
+        with pytest.raises(ParamError, match="norotate"):
+            Proxy(country="any", norotate="true", **CREDS)
 
     def test_no_value_is_checked_for_the_shipped_definition_yet(self):
         # Guards the difference between "not established" and "nothing is
