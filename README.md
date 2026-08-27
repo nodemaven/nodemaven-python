@@ -11,7 +11,7 @@
      Verified with readme_renderer (the renderer PyPI itself runs): `div align`,
      `img src`, `height` and the badges all survive its sanitiser.
      Switch the src to a relative path only after this repository is public. -->
-<a href="https://github.com/nodemaven"><img src="https://raw.githubusercontent.com/nodemaven/.github/main/profile/assets/nodemaven-mark.svg" alt="NodeMaven" height="56"></a>
+<a href="https://go.nodemaven.com/ghpython"><img src="https://raw.githubusercontent.com/nodemaven/.github/main/profile/assets/nodemaven-mark.svg" alt="NodeMaven" height="56"></a>
 
 # nodemaven
 
