@@ -87,6 +87,12 @@ class Provider:
 
     @property
     def is_measured(self) -> bool:
+        """Whether traffic has actually gone through this gateway.
+
+        False covers both "transcribed from documentation" and any status
+        nobody has defined, which is the safe way round: a definition is
+        unverified until something says otherwise.
+        """
         return self.status == "measured"
 
 
