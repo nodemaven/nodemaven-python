@@ -44,3 +44,26 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install . pytest
       - run: python -m pytest -q
+
+  # One name for the branch ruleset to require, instead of the six matrix jobs.
+  #
+  # A required status check is matched by name, and a name that stops being
+  # produced never reports - so a pull request waits on it forever. Requiring
+  # `test (3.9, ubuntu-latest)` directly means that dropping 3.9 from the matrix
+  # above silently blocks every pull request in the repository, and the ruleset
+  # is somewhere nobody edits when they edit this file. This job's name does not
+  # depend on the matrix, so the two cannot drift.
+  #
+  # `if: always()` with an explicit result check, and not a bare `needs:`. A
+  # skipped or cancelled dependency leaves a plain `needs:` job skipped rather
+  # than failed, and a skipped required check is treated as passing - which is
+  # the same hole in the other direction.
+  ci-ok:
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: every matrix job succeeded
+        run: |
+          echo "test -> ${{ needs.test.result }}"
+          test "${{ needs.test.result }}" = "success"

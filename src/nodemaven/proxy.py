@@ -103,6 +103,13 @@ class Proxy:
 
     @property
     def provider(self) -> Provider:
+        """The gateway definition this identity was built against.
+
+        Exposed because it answers the two questions a caller cannot otherwise
+        ask: ``provider.known_params`` is what this object will accept, and
+        ``provider.is_measured`` is whether anyone has confirmed the dialect
+        against the gateway or only read it out of documentation.
+        """
         return self._provider
 
     @property

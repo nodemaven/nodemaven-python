@@ -29,12 +29,21 @@ dependencies = ["tomli>=1.1.0; python_version < '3.11'"]
 
 [project.urls]
 # These render as the sidebar on the PyPI page, so every one of them has to answer
-# 200 to a logged-out visitor. Checked 2026-08-25.
-# `Source` is deliberately absent: nodemaven/nodemaven-python is internal and
-# answers 404 anonymously, exactly as a repository that does not exist does. Add it
-# in the same commit that makes the repository public, not before.
+# 200 to a logged-out visitor.
+#
+# `Source` and `Issues` were held back while nodemaven/nodemaven-python was
+# internal, because an internal repository answers 404 to an anonymous visitor
+# exactly as a repository that does not exist does. They go in with the commit
+# that makes it public and not before.
+#
+# **They will not appear on the package page that is up now.** PyPI bakes this
+# table into each uploaded distribution and never re-reads the repository, so
+# 0.1.2's sidebar is fixed whatever this file says. The links arrive with the
+# next release; the visibility flip on its own does nothing to them.
 Homepage = "https://nodemaven.com"
 Documentation = "https://docs.nodemaven.com"
+Source = "https://github.com/nodemaven/nodemaven-python"
+Issues = "https://github.com/nodemaven/nodemaven-python/issues"
 
 [tool.setuptools.dynamic]
 version = { attr = "nodemaven.__version__" }
