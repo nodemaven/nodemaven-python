@@ -177,12 +177,15 @@ against the gateway rather than transcribed:
 | `speed` | connection speed class | `fast`, `slow` (2026-08-12) |
 | `ipv4` | force IPv4 | `True` / `False` |
 
-**Names are validated, values are not.** Passing a name that is not in this table
-raises before anything is sent, because the gateway answers an unknown name with
-200 and drops the setting. Values are passed through, because what is known is
-which ones have been observed to work - and that is not the same as the set the
-gateway accepts. Refusing on a guessed list would block a setting that would have
-worked, which is the worse mistake of the two.
+**Names are validated. Values, on this gateway, are not.** Passing a name that is
+not in this table raises before anything is sent, because the gateway answers an
+unknown name with 200 and drops the setting. Values are passed through, because
+what is known is which ones have been observed to work - and that is not the same
+as the set the gateway accepts. Refusing on a guessed list would block a setting
+that would have worked, which is the worse mistake of the two. The schema does
+carry a per-parameter list of legal values and refuses anything outside it; the
+shipped definition leaves that list empty for every parameter, deliberately, and
+a definition you write yourself gets the check as soon as you fill it in.
 
 Credentials come from `NODEMAVEN_LOGIN` and `NODEMAVEN_PASSWORD` when not passed
 in, and the gateway address from `NODEMAVEN_HOST` and `NODEMAVEN_PORT`.
@@ -194,10 +197,14 @@ library raises.
 
 | exception | raised when |
 |---|---|
-| `ParamError` | a parameter name is unknown, a value is empty, or a value contains the gateway's separator |
+| `ParamError` | a parameter name is unknown, a value is empty, a value contains the gateway's separator, or a value is outside a list the definition declares |
 | `CredentialsError` | no login, no password, or no gateway address, from arguments or environment |
 | `ProviderError` | a gateway definition is missing, unreadable, or internally inconsistent |
 | `NodeMavenError` | the base, never raised on its own |
+
+`ParamError` also covers the two structural cases: `session()` on a definition
+that declares no session parameter, and a definition whose parameter names
+collide with `login`, `password`, `host`, `port` or `provider`.
 
 Nothing here is raised from a response, because nothing here sends one. Every
 failure this library reports is a failure it found before a socket existed.

@@ -12,8 +12,11 @@ says so" is not one of those, and an entry that rests on it says so outright.
 
 - `Source` and `Issues` added to the package metadata, and the README gained a
   CI badge, a link to its own LICENSE and a link to the benchmark harness the
-  retry table is measured on. All four were held back while the repository was
-  internal, where they answered 404 to anyone not signed in.
+  retry table is measured on. That is five things and they were held back for
+  two versions of one reason: the first four point into this repository, which
+  is internal and answers 404 to anyone not signed in - the badge reads "repo or
+  workflow not found" for the same reason - and the fifth points at
+  `proxy-benchmark`, which was internal until 2026-09-01.
 - The quickstart now shows a live first request through **any** proxy, not only
   through NodeMaven's gateway. Nothing in the library changed - the capability
   was there and the README buried it in the last section.
