@@ -15,13 +15,30 @@ after five and 0.5% after seven, and 294 attempts spent past six consecutive
 failures returned three pages - 98 attempts per delivered page against 1.7 in a
 healthy session. A library that hid that behind a default would be spending a
 shared pool's reputation on your behalf.
+
+Two things here do touch the network, and they are the only two. Both are
+explicit calls and neither happens on import:
+
+    >>> proxy.check()                 # one CONNECT, and what the gateway said
+    >>> Client().me()                 # the account API: quota, usage, sub-users
+
+``Proxy`` itself still opens nothing. Keeping those on separate objects is what
+lets the whole string-building half of this package stay testable with no socket
+and no account - see ``nodemaven.check`` and ``nodemaven.api``.
 """
 
+from .api import Client, Page
+from .check import Check
 from .errors import (
+    ApiError,
+    AuthError,
+    CheckError,
     CredentialsError,
     NodeMavenError,
+    NotFoundError,
     ParamError,
     ProviderError,
+    RateLimitError,
 )
 from .providers import Provider, available, load, load_file
 from .proxy import Proxy
@@ -31,6 +48,9 @@ __version__ = "0.1.2"
 __all__ = [
     "Proxy",
     "Provider",
+    "Client",
+    "Page",
+    "Check",
     "load",
     "load_file",
     "available",
@@ -38,5 +58,10 @@ __all__ = [
     "ParamError",
     "CredentialsError",
     "ProviderError",
+    "ApiError",
+    "AuthError",
+    "NotFoundError",
+    "RateLimitError",
+    "CheckError",
     "__version__",
 ]
