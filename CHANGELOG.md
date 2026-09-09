@@ -8,14 +8,27 @@ itself is built on: a change to what the gateway is believed to accept carries
 the probe that established it and the date it was run. "The vendor's documentation
 says so" is not one of those, and an entry that rests on it says so outright.
 
-## 0.1.3 - not released yet
+## 0.1.3 - 2026-09-09 17:42
 
-`__version__` says 0.1.3 as of 2026-09-09 and nothing has been uploaded. The
-heading carries no time because the times above are PyPI's upload records and
-there is no upload to record; it gets one when a `v0.1.3` tag and a GitHub
-Release fire `publish.yml`. Anyone quoting what this library does should say
-which tree they read until then, because PyPI still serves 0.1.2 and the two
-are different libraries.
+Uploaded by `publish.yml` through PyPI Trusted Publishing, from the `v0.1.3`
+tag and a published GitHub Release. The publisher on the artifact reads
+`nodemaven/nodemaven-python`, workflow `publish.yml`, environment `pypi`; no
+token was involved. Wheel 84703 bytes, sdist 155513.
+
+**This is the first release since the repository went public**, so `Source` and
+`Issues` reach the PyPI project page for the first time. They have been in
+`pyproject.toml` since 0.1.1 and were invisible for two versions, because
+project metadata travels with a release and never with a visibility flip.
+
+This heading said `not released yet` for the twenty minutes between the version
+bump and the upload, with a paragraph under it explaining that PyPI still served
+0.1.2 and that the two trees were different libraries. That was true when
+written and false the moment the workflow finished. It is recorded rather than
+quietly replaced because it is the same failure this project keeps logging: a
+dated claim carried past its date. Twenty minutes is the shortest any of them
+has lived, and the lifetime is not the point - the check is, and it is one
+request that cannot go stale: `pypi.org/pypi/nodemaven/json` states the version
+PyPI is actually serving.
 
 ### The library opens sockets now, and the README said it did not
 
