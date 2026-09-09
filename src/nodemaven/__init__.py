@@ -43,7 +43,7 @@ from .errors import (
 from .providers import Provider, available, load, load_file
 from .proxy import Proxy
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 __all__ = [
     "Proxy",

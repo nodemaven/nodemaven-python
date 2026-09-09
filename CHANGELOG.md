@@ -8,7 +8,14 @@ itself is built on: a change to what the gateway is believed to accept carries
 the probe that established it and the date it was run. "The vendor's documentation
 says so" is not one of those, and an entry that rests on it says so outright.
 
-## Unreleased
+## 0.1.3 - not released yet
+
+`__version__` says 0.1.3 as of 2026-09-09 and nothing has been uploaded. The
+heading carries no time because the times above are PyPI's upload records and
+there is no upload to record; it gets one when a `v0.1.3` tag and a GitHub
+Release fire `publish.yml`. Anyone quoting what this library does should say
+which tree they read until then, because PyPI still serves 0.1.2 and the two
+are different libraries.
 
 ### The library opens sockets now, and the README said it did not
 
