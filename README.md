@@ -709,9 +709,7 @@ client.upsert_whitelist_ip("203.0.113.7", 10, name="the office")
 client.delete_whitelist_ip(id)
 ```
 
-The dates go as `yyyy-mm-dd`. The vendor's documentation says `dd-mm-yyyy` in
-its prose and types the same fields as ISO dates two lines below; the type is
-what the server parses.
+The dates go as `dd-mm-yyyy`. The vendor's documentation types them as ISO dates (`format: date`), but the server parses `dd-mm-yyyy` and answers `yyyy-mm-dd` with a 400 - so send `20-08-2026`, not `2026-08-20`.
 
 **`sub_users()` returns each sub-user's `proxy_password` in clear text**, on
 every row, by the specification's own required-field list. So does `me()`. Do
