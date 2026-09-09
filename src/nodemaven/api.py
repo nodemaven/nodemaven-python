@@ -1603,7 +1603,7 @@ def _next_step(page: Page) -> Optional[Tuple[str, Dict[str, Any]]]:
             return None
         if size <= 0:
             return None
-        following[paging.cursor_key] = cursor + size
+        following[paging.cursor_key] = cursor + len(page.results)
     else:
         following[paging.cursor_key] = cursor + 1
     return path, following
