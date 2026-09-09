@@ -275,7 +275,12 @@ def load_file(path, provider_id: Optional[str] = None) -> Provider:
     # entry here cannot refuse anything, so a wrong one is a misleading sentence
     # and not a blocked request.
     connect_reactions: Dict[str, str] = {}
-    for status, meaning in (raw.get("connect_reactions") or {}).items():
+    raw_reactions = raw.get("connect_reactions")
+    if raw_reactions is not None and not isinstance(raw_reactions, dict):
+        raise ProviderError(
+            f"{path} gives connect_reactions as {raw_reactions!r}; it has to be a table."
+        )
+    for status, meaning in (raw_reactions or {}).items():
         if not isinstance(meaning, str) or not meaning:
             raise ProviderError(
                 f"{path} describes CONNECT status {status!r} as {meaning!r}. It has "
