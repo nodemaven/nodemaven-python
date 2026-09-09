@@ -404,11 +404,22 @@ class TestErrorsAreClassesACallerWouldBranchOn:
             api.delete_sub_user(7)
         assert caught.value.status == 404
 
-    def test_429_carries_the_servers_own_interval_and_retries_nothing(self):
+    def test_429_says_it_cannot_report_the_interval_and_retries_nothing(self):
+        # This was called `..._carries_the_servers_own_interval_...` and the
+        # message told the caller to read `retry_after`, while this same
+        # assertion pinned it as `None`. It can never be anything else from
+        # this client: `Transport` returns `(status, bytes)` and the headers
+        # are gone before `_interpret` sees them, so a `Retry-After` the server
+        # sent cannot reach the attribute. Found by review 2026-09-09.
+        #
+        # The test and the defect were three lines apart. The assertion was
+        # read as "the server did not send one" for as long as it existed, and
+        # nothing said the other branch was unreachable.
         api, _ = client((429, {"detail": "Request was throttled."}))
         with pytest.raises(RateLimitError, match="Nothing here retries") as caught:
             api.me()
         assert caught.value.retry_after is None
+        assert "retry_after is always None" in str(caught.value)
 
     def test_5xx_says_that_hammering_it_is_the_thing_we_decline_to_do(self):
         api, _ = client((503, {"detail": "upstream down"}))
@@ -794,7 +805,11 @@ class TestIterateWalksByOffsetWhenThereIsNoNext:
         )
         assert list(api.iterate(api.countries(limit=50))) == list(range(110))
         offsets = [parse_qs(urlsplit(c["url"]).query)["offset"] for c in fake.calls]
-        assert offsets == [["0"], ["50"], ["100"], ["150"]]
+        # The third page is short - 10 rows against a limit of 50 - so the
+        # fourth offset is 110 and not 150. This asserted 150 until 2026-09-09:
+        # the cursor advanced by the limit that was *asked for*, which is only
+        # the same number while the server never returns fewer.
+        assert offsets == [["0"], ["50"], ["100"], ["110"]]
 
     def test_a_short_page_is_followed_because_the_server_caps_the_limit(self):
         # This asserted the opposite until 2026-09-09 and it was the reason the
@@ -810,14 +825,31 @@ class TestIterateWalksByOffsetWhenThereIsNoNext:
         # The live case, 2026-09-08: `cities(limit=10000)` is answered with 1000
         # rows because 1000 is the server ceiling, and there are 1965. Under
         # "stop on a short page" this walk returned 1000 and reported nothing.
+        #
+        # **The offsets are asserted here from 2026-09-09, and until they were
+        # this test could not fail on the case it is named after.** It checked
+        # the row count only, and `FakeTransport` replays its queue whatever the
+        # query string says, so a walk asking for offset 0, 10000, 20000 gets
+        # the same three responses as one asking for 0, 1000, 1965 and counts
+        # 1965 either way. Against the real server the second request would have
+        # started 8035 rows past the end of the collection. The two tests in
+        # this class that do read the offsets were asserting the wrong numbers,
+        # so the defect sat between a test that could not see it and two that
+        # pinned it.
         api, fake = client(
             (200, {"results": list(range(0, 1000))}),
             (200, {"results": list(range(1000, 1965))}),
             (200, {"results": []}),
         )
         assert len(list(api.iterate(api.cities(limit=10000)))) == 1965
+        offsets = [parse_qs(urlsplit(c["url"]).query)["offset"] for c in fake.calls]
+        assert offsets == [["0"], ["1000"], ["1965"]]
 
-    def test_a_caller_who_raised_the_limit_pages_at_that_limit(self):
+    def test_a_caller_who_raised_the_limit_pages_by_the_rows_returned(self):
+        # This was called `..._pages_at_that_limit` and asserted 400 as the
+        # third offset until 2026-09-09, so its own name stated the defect as
+        # the intended behaviour. The second page holds 3 rows, so everything
+        # from 203 to 399 was skipped whenever the server had it.
         api, fake = client(
             (200, {"results": list(range(200))}),
             (200, {"results": list(range(3))}),
@@ -825,7 +857,7 @@ class TestIterateWalksByOffsetWhenThereIsNoNext:
         )
         list(api.iterate(api.countries(limit=200)))
         offsets = [parse_qs(urlsplit(c["url"]).query)["offset"] for c in fake.calls]
-        assert offsets == [["0"], ["200"], ["400"]]
+        assert offsets == [["0"], ["200"], ["203"]]
 
     def test_the_default_limit_is_what_a_caller_who_asks_for_nothing_pages_at(self):
         api, fake = client(

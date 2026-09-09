@@ -12,6 +12,7 @@ import pytest
 from nodemaven import (
     CredentialsError,
     ParamError,
+    Provider,
     ProviderError,
     Proxy,
     available,
@@ -240,6 +241,113 @@ label = "P"
 known_params = ["filter"]
 values = { filter = [] }
 """)
+
+    def test_a_legal_value_list_is_folded_when_the_parameter_is_normalized(
+        self, tmp_path
+    ):
+        # Found by review 2026-09-09. The caller's value is folded before it is
+        # checked, so an unfolded list refuses exactly the values the definition
+        # declared legal: `District of Columbia` arrived at the check as
+        # `district_of_columbia` and was compared against `District of
+        # Columbia`. Both sides go through one fold now.
+        provider = self._provider(tmp_path, """
+label = "P"
+known_params = ["region"]
+normalize = ["region"]
+values = { region = ["District of Columbia"] }
+""")
+        assert provider.allowed("region") == ("district_of_columbia",)
+        built = Proxy(provider=provider, region="District of Columbia", **CREDS)
+        assert built.username == "acct-region-district_of_columbia"
+
+    def test_an_unnormalized_value_list_is_left_alone(self, tmp_path):
+        # The control for the test above: the fold has to follow `normalize`
+        # and not apply to every list, or a definition that deliberately keeps
+        # a case-sensitive value silently loses the distinction.
+        provider = self._provider(tmp_path, """
+label = "P"
+known_params = ["region"]
+values = { region = ["District of Columbia"] }
+""")
+        assert provider.allowed("region") == ("District of Columbia",)
+
+    def test_a_normalize_that_is_not_a_list_is_refused_at_load(self, tmp_path):
+        # `normalize = 1` raised a bare TypeError until 2026-09-09, which is
+        # neither of this package's exception types.
+        with pytest.raises(ProviderError, match="has to be a list"):
+            self._provider(tmp_path, """
+label = "P"
+known_params = ["region"]
+normalize = 1
+""")
+
+    def test_a_normalize_given_as_a_string_is_refused_at_load(self, tmp_path):
+        # Worse than the TypeError above and the reason the check is on the
+        # type rather than on iterability: a string iterates into characters,
+        # so this used to be reported as six unknown parameter names.
+        with pytest.raises(ProviderError, match="has to be a list"):
+            self._provider(tmp_path, """
+label = "P"
+known_params = ["region"]
+normalize = "region"
+""")
+
+    def test_connect_reactions_that_are_not_a_table_are_refused_at_load(
+        self, tmp_path
+    ):
+        # Found by review 2026-09-09: `.items()` on a list is an AttributeError,
+        # which says nothing about the file it came from.
+        with pytest.raises(ProviderError, match="has to be a table"):
+            self._provider(tmp_path, """
+label = "P"
+known_params = ["country"]
+connect_reactions = ["407 is a refusal"]
+""")
+
+    def test_a_port_outside_the_range_is_refused_at_load(self, tmp_path):
+        # Found by review 2026-09-09. `int(port)` accepted this and `Proxy`
+        # then built `host:70000`, because taking the provider's port as a
+        # fallback was the one path that skipped the port rule.
+        with pytest.raises(ProviderError, match="1 to 65535"):
+            self._provider(tmp_path, """
+label = "P"
+known_params = ["country"]
+host = "gateway.example"
+port = 70000
+""")
+
+    def test_a_port_that_is_not_a_number_is_refused_at_load(self, tmp_path):
+        with pytest.raises(ProviderError, match="1 to 65535"):
+            self._provider(tmp_path, """
+label = "P"
+known_params = ["country"]
+host = "gateway.example"
+port = "abc"
+""")
+
+    def test_a_bad_provider_port_reached_in_code_names_the_definition(self):
+        # `load_file` refuses the value above, but `Provider` is a public
+        # dataclass and can be built without the loader, so `Proxy` keeps its
+        # own guard. What is pinned here is the sentence: the first version of
+        # this fix reported a bad definition as `port=70000 is not a TCP port`
+        # and then `the gateway's own ports are 70000`, blaming a `port=`
+        # argument the caller never passed.
+        #
+        # `CREDS` carries a port, so it is deliberately not used here - passing
+        # one would take the caller branch and the test would pass while
+        # measuring the other sentence.
+        provider = Provider(id="p", label="P", known_params=frozenset({"country"}),
+                            host="gateway.example", port=70000)
+        with pytest.raises(CredentialsError, match="You passed no port="):
+            Proxy(provider=provider, login="acct", password="pw")
+
+    def test_a_bad_caller_port_still_blames_the_caller(self):
+        # The control for the test above: the same bad number, supplied the
+        # other way, has to produce the other sentence.
+        provider = Provider(id="p", label="P", known_params=frozenset({"country"}),
+                            host="gateway.example", port=8080)
+        with pytest.raises(CredentialsError, match="port=70000 is not a TCP port"):
+            Proxy(provider=provider, login="acct", password="pw", port=70000)
 
 
 class TestTheShippedDefinition:
