@@ -586,7 +586,11 @@ taken effect. Nothing failing, nothing to notice.
   softened - the README still says which behaviours were measured and which
   were transcribed, and it now names this file as where the provenance lives.
   Counted after the sweep rather than during it: `README.md` holds two dates and
-  both are the arguments in `statistics(start_date=..., end_date=...)`, the Rust
+  both are the arguments in `statistics(start_date=..., end_date=...)` - which
+  named two filters this server does not have, corrected in the README on
+  2026-09-09 and left standing here because the count was right about the dates
+  and the sentence around them was quoting the example rather than the API - the
+  Rust
   README holds none, all five `connect_reactions` hold none, and `notes` keeps
   its six.
 
@@ -895,6 +899,42 @@ is worse than no prose, because it is what a later reader checks against.
   headings were therefore checking a superset: a link pointing at a code comment
   would have passed. They were green throughout and had stopped testing their
   subject.
+
+**An eleventh fix, from a second pass of the same review, and it is a defect
+the first pass introduced.** Correcting the ISO dates in the statistics examples
+left the keyword names alone: they read `start_date=` and `end_date=`, and this
+server's filters are `start` and `end`. The examples had been wrong about the
+names since the section was written, and the edit that touched the very same two
+lines did not look at them, because the finding was about the date format and
+the date format is what got checked.
+
+The consequence is worse than a wrong example. `Client` forwards `**filters` as
+query parameters unaltered, and **this server ignores a query parameter it does
+not know**, measured 2026-09-09. So `start_date=` is accepted by Python, sent,
+and dropped; the range is then absent, and the call answers 500 with the server
+complaining about a missing range rather than about the name. Nothing between
+the caller and the response says the word was wrong.
+
+That is the `norotate` failure mode one layer up, and it is worth naming as an
+inconsistency in this package rather than as a typo: `Proxy` refuses an unknown
+gateway parameter before sending, because the gateway answers 200 and drops it -
+that refusal is most of what this library is for - and `Client` forwards an
+unknown API parameter in silence for exactly the same server behaviour.
+Validating `**filters` means shipping a per-endpoint list of legal names, which
+is a version's worth of decision and is not made here. Three tests now pin the
+examples instead: the filter names, the date format, and that no example omits
+`start`, `end` and `period` together - `domain_statistics("acct-1")` did, and
+all three statistics endpoints answer 500 to that.
+
+**The test written in the first pass would not have caught it, and would have
+gone quiet on being fixed.** It scanned for `(?:start|end)_date="..."`, because
+it was written from the examples rather than from the API, so it pinned the date
+format of two arguments that did nothing - and the moment the names were
+corrected its regex would have matched nothing and it would have passed on an
+empty list. It survives only because it carries an `assert dated` guard first. A
+test that scans for something and then checks what it found needs to assert it
+found something, or it turns into a green no-op the first time the thing it
+scans for is renamed.
 
 Two findings were declined:
 

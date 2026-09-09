@@ -676,7 +676,8 @@ class Client:
 
     def statistics_requests(self, proxy_username: str, **filters: Any) -> Dict[str, Any]:
         """Request counts over time. Same two-array shape as
-        :meth:`statistics_data`."""
+        :meth:`statistics_data`, and the same filters: ``start`` and ``end`` in
+        ``dd-mm-yyyy``, or a ``period``, and a 500 if all three are missing."""
         return self._get(
             f"{API_ROOT}/statistics/requests/",
             dict(filters, proxy_username=proxy_username),
@@ -693,6 +694,13 @@ class Client:
         paging convention and :meth:`iterate` over it yields exactly these rows
         and stops. It is a ``Page`` at all only so that iterating the result
         reads the same as iterating the catalogue.
+
+        Send a ``period`` or a ``start``/``end`` range here too: this endpoint
+        is in the same 500 as the other two when all three are omitted. The
+        warning is repeated on each of the three rather than written once on
+        :meth:`statistics_data`, because the README showed
+        ``domain_statistics("acct-1")`` bare until 2026-09-09 - the docstring
+        carrying it was not the docstring anybody read.
         """
         return self._list(
             f"{API_ROOT}/statistics/domains/",

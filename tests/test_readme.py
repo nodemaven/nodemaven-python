@@ -182,6 +182,39 @@ class TestTheReadmeIsSelfConsistent:
         )
         assert _headings(sample) == {"real-heading", "second-real-heading"}
 
+    def test_the_statistics_examples_name_the_filters_the_server_has(
+        self, blocks
+    ):
+        """The range is ``start`` and ``end``, and nothing else catches a typo.
+
+        `Client` forwards `**filters` as query parameters unaltered, and this
+        server **ignores a query parameter it does not know** - measured
+        2026-09-09. So `start_date=` is accepted by Python, sent, and dropped,
+        and because the range is then absent the call answers 500 with the
+        server complaining about something else. That is the `norotate` failure
+        mode one layer up: the package refuses an unknown *gateway* parameter
+        and forwards an unknown *API* parameter in silence.
+
+        The names are written out here, which is a second copy of a contract
+        this file's own docstring warns against. It is deliberate, because
+        there is no first copy to point at: `**filters` means the package holds
+        no list of legal filter names anywhere. The copy is the finding.
+        """
+        names = {"proxy_username", "timezone", "start", "end", "period",
+                 "request_source", "limit"}
+        calls = [
+            (call, args)
+            for _language, body in blocks
+            for call, args in re.findall(r"client\.(statistics_\w+|domain_statistics)\(([^)]*)\)", body)
+        ]
+        assert calls, "no statistics example was found, so nothing was checked"
+        for call, args in calls:
+            for keyword in re.findall(r"(\w+)=", args):
+                assert keyword in names, (
+                    f"{call} is shown with {keyword}=, which this server has no "
+                    f"such filter for; it would be dropped in silence"
+                )
+
     def test_no_statistics_example_carries_an_iso_date(self, blocks):
         # The server parses `dd-mm-yyyy` and answers an ISO date 400, measured
         # 2026-09-09 by `--phase 10`. The examples carried ISO until that day.
@@ -191,10 +224,18 @@ class TestTheReadmeIsSelfConsistent:
         # whole file would have to be written to permit the very string it is
         # looking for. A test that has to make an exception for the correct case
         # is one edit away from making it for the wrong one.
+        #
+        # This matched `start_date=`/`end_date=` when it was written, because it
+        # was written from the examples rather than from the API. Those names
+        # are not filters this server has, so the test pinned the date format of
+        # two arguments that did nothing - and the moment they were corrected it
+        # would have matched nothing and passed on an empty list. The `assert
+        # dated` guard below is the only reason that would have been noticed,
+        # and it is why a scan-and-check test needs one.
         dated = [
             value
             for _language, body in blocks
-            for value in re.findall(r"(?:start|end)_date=\"([^\"]+)\"", body)
+            for value in re.findall(r"\b(?:start|end)=\"([^\"]+)\"", body)
         ]
         assert dated, "no dated example was found, so nothing was checked"
         for value in dated:
@@ -202,6 +243,22 @@ class TestTheReadmeIsSelfConsistent:
                 f"a statistics example dates as {value!r}; this server parses "
                 f"dd-mm-yyyy and answers ISO 400"
             )
+
+    def test_no_statistics_example_omits_the_range_and_the_period(self, blocks):
+        # All three statistics endpoints answer **500** - not 400 - when
+        # `start`, `end` and `period` are all omitted, measured 2026-09-09 by
+        # `--phase 10`, though the document marks all three optional. So an
+        # example calling one with the username alone is an example of a 500.
+        # `domain_statistics("acct-1")` was exactly that until this test.
+        for _language, body in blocks:
+            for call, args in re.findall(
+                r"client\.(statistics_\w+|domain_statistics)\(([^)]*)\)", body
+            ):
+                keywords = set(re.findall(r"(\w+)=", args))
+                assert keywords & {"start", "end", "period"}, (
+                    f"{call} is shown with no start=, end= or period=, which "
+                    f"this server answers 500"
+                )
 
 
 class TestTheParameterTable:
