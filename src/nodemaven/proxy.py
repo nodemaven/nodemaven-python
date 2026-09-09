@@ -99,17 +99,16 @@ class Proxy:
         # accepting more than a port is and then a truthiness test standing in
         # for a range check.
         if raw_port in (None, ""):
-            self._port = self._provider.port
-        else:
-            self._port = _port_number(str(raw_port))
-            if self._port is None:
-                raise CredentialsError(
-                    f"port={raw_port!r} is not a TCP port: it has to be a whole "
-                    f"number from 1 to 65535. Nothing was built. The gateway's "
-                    f"own ports are {self._provider.port} and the ones its "
-                    f"documentation lists; 0 is not one of them - it means 'any "
-                    f"free port' when binding and is meaningless when connecting."
-                )
+            raw_port = self._provider.port
+        self._port = None if raw_port is None else _port_number(str(raw_port))
+        if raw_port is not None and self._port is None:
+            raise CredentialsError(
+                f"port={raw_port!r} is not a TCP port: it has to be a whole "
+                f"number from 1 to 65535. Nothing was built. The gateway's "
+                f"own ports are {self._provider.port} and the ones its "
+                f"documentation lists; 0 is not one of them - it means 'any "
+                f"free port' when binding and is meaningless when connecting."
+            )
 
         if not self._login or not self._password:
             missing = [
