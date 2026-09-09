@@ -29,11 +29,30 @@ if sys.version_info >= (3, 11):  # pragma: no cover - version dependent
 else:  # pragma: no cover - version dependent
     import tomli as tomllib
 
-__all__ = ["Provider", "load", "load_file", "available"]
+__all__ = ["Provider", "load", "load_file", "available", "ASCII_WHITESPACE"]
 
 DEFAULT_PROVIDER = "nodemaven"
 
 _REQUIRED = ("label", "known_params")
+
+#: The six characters treated as whitespace in a parameter value.
+#:
+#: Spelled out rather than delegated to ``str.isspace`` or ``str.strip()`` with
+#: no argument, because neither means the same thing in four languages:
+#: ``str.isspace`` is Unicode-wide and also true of a no-break space, while
+#: Rust's ``is_ascii_whitespace`` excludes the vertical tab that Python's
+#: includes. A value carrying any of these is refused, so the set is part of the
+#: cross-language contract and has to be a list somebody can copy.
+ASCII_WHITESPACE = " \t\n\r\v\f"
+
+# ASCII case folding and nothing wider. ``str.lower()`` is Unicode-aware, so it
+# maps characters like the Turkish dotted capital I in a way Rust and Go do not
+# reproduce, and a golden vector that depended on it would fail in one SDK for
+# reasons that have nothing to do with proxies.
+_ASCII_LOWER = str.maketrans(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "abcdefghijklmnopqrstuvwxyz",
+)
 
 
 @dataclass(frozen=True, eq=False)
@@ -62,6 +81,8 @@ class Provider:
     port: Optional[int] = None
     aliases: Dict[str, str] = field(default_factory=dict)
     values: Dict[str, Tuple[str, ...]] = field(default_factory=dict)
+    normalize: FrozenSet[str] = frozenset()
+    connect_reactions: Dict[str, str] = field(default_factory=dict)
     exit_ip_header: Optional[str] = None
     source: str = ""
     source_read: str = ""
@@ -70,6 +91,18 @@ class Provider:
     def spell(self, name: str) -> str:
         """The name this gateway uses on the wire for a canonical parameter."""
         return self.aliases.get(name, name)
+
+    def reaction(self, status: int) -> Optional[str]:
+        """What a CONNECT status means **on this gateway**, or None if unrecorded.
+
+        This is dialect and not HTTP. The shipped gateway answers a bad ``filter``
+        value with 407 Proxy Authentication Required, which is a lie about the
+        cause in the most expensive direction available: it sends the caller to
+        check credentials that are correct. A status code alone is therefore not
+        a diagnosis here, and the translation is per-gateway, so it lives in the
+        TOML beside the separators rather than in a dict in this module.
+        """
+        return self.connect_reactions.get(str(status))
 
     def allowed(self, name: str) -> Optional[Tuple[str, ...]]:
         """The legal values for a parameter, or None if they are not known.
@@ -84,6 +117,36 @@ class Provider:
         file.
         """
         return self.values.get(name)
+
+    def normalizes(self, name: str) -> bool:
+        """Whether this gateway wants the value of ``name`` folded.
+
+        The parameters that say yes carry a human place name - a region, a city,
+        an ISP - and the gateway wants ``district_of_columbia`` where a caller
+        naturally writes ``District of Columbia``. See ``normalized()``.
+        """
+        return name in self.normalize
+
+    def normalized(self, name: str, value: str) -> str:
+        """The wire form of a value, or the value unchanged if it is not folded.
+
+        The fold is three steps, in this order, and **it is part of the
+        cross-language contract** - a golden vector pins the username a set of
+        parameters produces, so four SDKs have to agree on it character for
+        character:
+
+        1. strip leading and trailing ``ASCII_WHITESPACE``
+        2. lower-case ASCII ``A-Z`` only
+        3. replace each space with ``_``
+
+        Which parameters this applies to is declared in the provider TOML, as
+        data, for the same reason ``known_params`` is: the public API must never
+        name a gateway's parameters in its own code, and the next gateway will
+        fold a different set or none at all.
+        """
+        if name not in self.normalize:
+            return value
+        return value.strip(ASCII_WHITESPACE).translate(_ASCII_LOWER).replace(" ", "_")
 
     @property
     def is_measured(self) -> bool:
@@ -184,6 +247,63 @@ def load_file(path, provider_id: Optional[str] = None) -> Provider:
             )
         values[name] = tuple(str(item) for item in allowed)
 
+    # Which parameters are folded to their wire form before anything else looks
+    # at them. One list and one rule, deliberately: the vendor's own client
+    # applies two - lower-case for `country` and `type`, lower-case plus
+    # space-to-underscore for `region`, `city` and `isp` - and the difference
+    # cannot be observed, because a country code and a pool name have no spaces
+    # in them to convert. One rule that four languages have to agree on beats
+    # two.
+    normalize = frozenset(str(name) for name in (raw.get("normalize") or ()))
+    unknown_normalize = sorted(normalize - known)
+    if unknown_normalize:
+        raise ProviderError(
+            f"{path} normalizes {unknown_normalize} which are not in "
+            f"known_params, so those parameters are refused by name and the "
+            f"fold can never run."
+        )
+
+    # What each CONNECT status means on this gateway. Keys are the status code as
+    # a string, because TOML has no integer keys and JSON has none either - and
+    # the golden vectors are JSON, so a schema that used integers here would
+    # already have to be stringified to be shared.
+    #
+    # Any status may be described and none has to be: an entry is a sentence a
+    # human wrote after watching the gateway do it, so a gateway nobody has
+    # probed simply has none and `check()` reports the bare status. There is no
+    # validation to do beyond "it is a table of strings" - unlike `values`, an
+    # entry here cannot refuse anything, so a wrong one is a misleading sentence
+    # and not a blocked request.
+    connect_reactions: Dict[str, str] = {}
+    for status, meaning in (raw.get("connect_reactions") or {}).items():
+        if not isinstance(meaning, str) or not meaning:
+            raise ProviderError(
+                f"{path} describes CONNECT status {status!r} as {meaning!r}. It has "
+                f"to be a non-empty string: this text is shown to a caller as the "
+                f"reason their connection was refused."
+            )
+        connect_reactions[str(status)] = meaning
+
+    separator = str(raw.get("separator", "-"))
+    pair_separator = str(raw.get("pair_separator", "-"))
+
+    # A normalized value can never contain the separator, because the fold does
+    # not introduce one and a value carrying it is refused either way. But a
+    # separator of "_" would make the fold *produce* one - `city="New York"`
+    # becoming `new_york` and then being cut in half - so the definition that
+    # declares both is refused here rather than at the call site, where the
+    # caller would be blamed for input that is correct.
+    if normalize:
+        for candidate in (separator, pair_separator):
+            if candidate == "_":
+                raise ProviderError(
+                    f"{path} separates parameters with {candidate!r} and also "
+                    f"normalizes {sorted(normalize)}, and the fold turns a "
+                    f"space into {candidate!r}. A value with a space in it "
+                    f"would be cut at the separator the fold had just "
+                    f"inserted. Pick one."
+                )
+
     port = raw.get("port")
     return Provider(
         id=provider_id or path.stem,
@@ -191,13 +311,15 @@ def load_file(path, provider_id: Optional[str] = None) -> Provider:
         known_params=known,
         status=str(raw.get("status", "documented")),
         prefix=str(raw.get("prefix", "{login}")),
-        separator=str(raw.get("separator", "-")),
-        pair_separator=str(raw.get("pair_separator", "-")),
+        separator=separator,
+        pair_separator=pair_separator,
         session_param=session_param,
         host=raw.get("host"),
         port=int(port) if port is not None else None,
         aliases=aliases,
         values=values,
+        normalize=normalize,
+        connect_reactions=connect_reactions,
         exit_ip_header=raw.get("exit_ip_header"),
         source=str(raw.get("source", "")),
         source_read=str(raw.get("source_read", "")),

@@ -33,13 +33,16 @@ dependencies = ["tomli>=1.1.0; python_version < '3.11'"]
 #
 # `Source` and `Issues` were held back while nodemaven/nodemaven-python was
 # internal, because an internal repository answers 404 to an anonymous visitor
-# exactly as a repository that does not exist does. They go in with the commit
-# that makes it public and not before.
+# exactly as a repository that does not exist does. That condition is gone:
+# `gh api repos/nodemaven/nodemaven-python --jq .visibility` answered `public`
+# on 2026-09-08, so both links resolve for a logged-out reader and can stay.
 #
-# **They will not appear on the package page that is up now.** PyPI bakes this
-# table into each uploaded distribution and never re-reads the repository, so
-# 0.1.2's sidebar is fixed whatever this file says. The links arrive with the
-# next release; the visibility flip on its own does nothing to them.
+# **They still will not appear on the package page that is up now.** PyPI bakes
+# this table into each uploaded distribution and never re-reads the repository,
+# so 0.1.2's sidebar is fixed whatever this file says - re-read on 2026-09-08,
+# it carries Homepage and Documentation and no Source. The links arrive with the
+# next release; the visibility flip on its own did nothing to them, which is the
+# whole reason this note is worth keeping.
 Homepage = "https://nodemaven.com"
 Documentation = "https://docs.nodemaven.com"
 Source = "https://github.com/nodemaven/nodemaven-python"

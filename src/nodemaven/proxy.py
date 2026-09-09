@@ -8,11 +8,15 @@ client you already have.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Mapping, Optional
+import secrets
+from typing import Any, Dict, List, Mapping, Optional
 from urllib.parse import quote
 
+from .check import DEFAULT_TARGET, Check
+from .check import _port_number
+from .check import connect as _connect
 from .errors import CredentialsError, ParamError
-from .providers import Provider, load
+from .providers import ASCII_WHITESPACE, Provider, load
 
 __all__ = ["Proxy"]
 
@@ -78,7 +82,34 @@ class Proxy:
         raw_port = port if port is not None else os.environ.get(f"{env}_PORT")
 
         self._host = raw_host or self._provider.host
-        self._port = int(raw_port) if raw_port not in (None, "") else self._provider.port
+        # Through `check._port_number` and not `int()`, and the import across
+        # modules is the point rather than a shortcut. That function already
+        # holds the rule - ASCII digits only, at most five of them, 1 to 65535 -
+        # with the three defects that produced it written down beside it. A
+        # second `int()` here is a second implementation of the same rule, and a
+        # rule with two implementations is the thing that let `check.rs` ship
+        # the missing `HTTP/` check that `check.py` also had.
+        #
+        # Measured 2026-09-08, both from an external review: `port='abc'` raised
+        # `ValueError: invalid literal for int() with base 10: 'abc'`, which is
+        # neither of this package's exception types and mentions nothing a
+        # caller can act on; and `port='0'` raised `CredentialsError` saying
+        # "pass host= and port=", although the port *was* passed. The first was
+        # the wrong class, the second the wrong sentence - both from `int()`
+        # accepting more than a port is and then a truthiness test standing in
+        # for a range check.
+        if raw_port in (None, ""):
+            self._port = self._provider.port
+        else:
+            self._port = _port_number(str(raw_port))
+            if self._port is None:
+                raise CredentialsError(
+                    f"port={raw_port!r} is not a TCP port: it has to be a whole "
+                    f"number from 1 to 65535. Nothing was built. The gateway's "
+                    f"own ports are {self._provider.port} and the ones its "
+                    f"documentation lists; 0 is not one of them - it means 'any "
+                    f"free port' when binding and is meaningless when connecting."
+                )
 
         if not self._login or not self._password:
             missing = [
@@ -218,6 +249,145 @@ class Proxy:
             )
         return self.replace(**{self._provider.session_param: session_id})
 
+    def sessions(self, count: int, *, length: int = 6) -> List["Proxy"]:
+        """``count`` identities with the same parameters and distinct session ids.
+
+        The thing everybody writes by hand, and the two details that are easy to
+        get wrong when writing it by hand are why it is here.
+
+        The ids are **hexadecimal**, from :mod:`secrets`. Hex because a session id
+        must not contain the gateway's separator - a value carrying one is cut and
+        every id sharing a prefix collapses onto one exit, measured 2026-08-20 -
+        and the alphabets people reach for first do not have that property:
+        :func:`secrets.token_urlsafe` emits ``-`` and ``_``, ``uuid4()`` emits
+        ``-`` four times, and base64 emits ``+`` and ``/``. Every one of those is
+        a separator on some gateway. The constructor would refuse them, loudly,
+        which is the safe failure - but only after the caller had written the
+        code.
+
+        They come from :mod:`secrets` and not :mod:`random` because
+        :func:`random.random` is seeded from the clock and its stream is
+        reproducible: two processes started in the same millisecond would get the
+        same ids, so two workers meant to hold two exits would share one.
+
+        ``length`` is in bytes, so the default is 12 hex characters and 2**48
+        possible ids.
+
+        **This paragraph used to end "so a very short ``length`` costs time and
+        not correctness", and that was wrong in two ways.** It was written about
+        the rejection loop below, which does guarantee distinctness within one
+        call, and it read the guarantee as free.
+
+        The first way is a hang. Rejection sampling cannot produce more distinct
+        values than exist, so ``count`` above the size of the space is a loop
+        with no exit - measured 2026-09-08 in an external review and reproduced
+        here the same day: ``sessions(257, length=1)`` did not return in 4 s,
+        while ``sessions(200, length=1)`` built 200 immediately. The loop is not
+        slow there, it never finishes, and it does it while holding the CPU. So
+        ``count`` is now checked against the space, and the bound is strict:
+        asking for the whole space would draw every value that exists and leave
+        none for the next caller.
+
+        The second way is not fixed by any check here and is the reason the
+        sentence was worth correcting rather than deleting. ``seen`` is local to
+        one call, so distinctness holds **inside a call and nowhere else**. Two
+        processes drawing 8-bit ids collide with each other about as often as
+        they do not, and a collision does not raise - it hands two workers one
+        exit and looks like a working program. That is the failure the default
+        length is set to make impossible rather than unlikely.
+        """
+        if count < 1:
+            raise ParamError(
+                f"sessions({count!r}) asks for no identities. Nothing would be "
+                f"returned and the call is a mistake somewhere upstream."
+            )
+        if length < 1:
+            raise ParamError(f"length={length!r} would produce an empty session id.")
+        # Compared in bits and not by computing 16**(2*length), which is a
+        # bignum for a large `length` in Python and an overflow in three of the
+        # four languages this has to hold in. `count.bit_length() > bits` is
+        # exactly `count >= 2**bits`, so the whole space is refused along with
+        # everything past it - one comparison, same answer everywhere.
+        bits = 8 * length
+        if count.bit_length() > bits:
+            raise ParamError(
+                f"sessions({count!r}, length={length!r}) asks for at least the "
+                f"whole space: {2 * length} hex characters make 2**{bits} "
+                f"distinct ids, and drawing without repeating is what this does. "
+                f"Raise length= rather than count=, and note that ids are only "
+                f"unique within one call - the space has to be large enough for "
+                f"every process that draws from it, not just for this one."
+            )
+
+        # Rejection rather than trust. 12 hex characters make a collision within
+        # a handful of draws vanishingly unlikely, and "vanishingly unlikely" is
+        # the wrong standard here: a collision does not raise, it hands two
+        # workers one exit and looks like a working program. Since a duplicate is
+        # detectable in one line, it is detected.
+        seen = set()
+        out: List["Proxy"] = []
+        while len(out) < count:
+            session_id = secrets.token_hex(length)
+            if session_id in seen:
+                continue
+            seen.add(session_id)
+            out.append(self.session(session_id))
+        return out
+
+    # -- asking the gateway -------------------------------------------------
+
+    def check(
+        self,
+        *,
+        target: str = DEFAULT_TARGET,
+        timeout: float = 15.0,
+    ) -> Check:
+        """Open one CONNECT with these parameters and report what the gateway said.
+
+        The one method here that touches the network, and it is a deliberate
+        exception to "this package opens no socket" rather than a retreat from
+        it. That rule is about **transport** - connection pools, timeouts, retry
+        semantics, four sets of bugs in four languages - and this is one socket,
+        opened when asked, closed before returning, holding no state.
+
+        Returns a :class:`~nodemaven.check.Check`. A refused connection is a
+        return value and not an exception, because the status code is the reason
+        anyone calls this, and it arrives carrying the provider's own reading of
+        that code::
+
+            >>> result = proxy.check()          # doctest: +SKIP
+            >>> result.ok, result.status        # doctest: +SKIP
+            (False, 407)
+            >>> print(result.meaning)           # doctest: +SKIP
+            usually NOT your credentials, despite what the status says...
+
+        That last line is the whole point. 407 Proxy Authentication Required is
+        what this gateway answers to a bad ``filter`` value and to a bad ``ttl``
+        value as well as to a wrong password, measured 2026-08-10, so the status
+        alone sends people to re-check credentials that are correct.
+
+        **``ok`` is not "my settings were applied."** It means the gateway
+        accepted the request. An unrecognised parameter name is also answered
+        with 200 and dropped, which is why this package refuses unknown names
+        before sending; ``check()`` cannot recover that for you and does not
+        pretend to.
+
+        ``target`` is the host the tunnel is opened to. It is a real third party
+        that sees a TCP connection from the exit address - there is no null
+        CONNECT - so it is a parameter and not a constant. Nothing is sent
+        through the tunnel: the exit address, when it arrives, comes back on the
+        CONNECT reply itself, so this costs one handshake and no target traffic.
+        """
+        return _connect(
+            self.server,
+            self.username,
+            self._password,
+            target=target,
+            timeout=timeout,
+            exit_ip_header=self._provider.exit_ip_header,
+            reactions=self._provider.connect_reactions,
+        )
+
     # -- output that is not a credential ------------------------------------
 
     def __repr__(self) -> str:
@@ -240,14 +410,16 @@ def _validate(provider: Provider, params: Mapping[str, Any]) -> Dict[str, str]:
     """Refuse client-side what the gateway will not report.
 
     This is not politeness, it is the only check available. The gateway this
-    package ships a definition for answers seven kinds of bad input seven
-    different ways and none of them names the cause: a bad country or region
-    gives 406, a bad city 500, a bad filter or ttl value gives 407 - which sends
-    you to check credentials that are fine - an empty value hangs the connection
-    for about twenty seconds, and an unknown parameter name is answered with
-    **200 and the setting silently dropped**. That last one is why this function
-    exists: the request succeeds, and nothing that comes back can tell you the
-    setting was never applied.
+    package ships a definition for answers a value it will not take five
+    different ways and none of them names the parameter: a bad region gives 406,
+    a bad city 500, a bad isp 410, and a bad country, filter, ttl, type or speed
+    value gives 407 - which sends you to check credentials that are fine. An
+    empty value hangs the connection for about twenty seconds, and an unknown
+    parameter name is answered with **200 and the setting silently dropped**.
+    That last one is why this function exists: the request succeeds, and nothing
+    that comes back can tell you the setting was never applied. See
+    ``connect_reactions`` in the gateway definition for the sentence a caller is
+    shown next to each code.
     """
     out: Dict[str, str] = {}
     for key, value in params.items():
@@ -258,15 +430,43 @@ def _validate(provider: Provider, params: Mapping[str, Any]) -> Dict[str, str]:
                 f"and your setting would NOT be applied. "
                 f"Known: {sorted(provider.known_params)}"
             )
-        if value is None or value == "":
+        if isinstance(value, bool):
+            value = "true" if value else "false"
+        text = "" if value is None else str(value)
+
+        # Fold before every remaining check, so that a refusal quotes the string
+        # that would actually have gone on the wire rather than the one that was
+        # typed. The folded value is what gets stored, so ``params``,
+        # ``username`` and the sticky-session identity all agree - a Proxy that
+        # reported ``New York`` while sending ``new_york`` would make two callers
+        # with the same visible configuration land on different exits.
+        text = provider.normalized(key, text)
+
+        if not text:
             raise ParamError(
                 f"empty value for {key!r}: the gateway does not reply to this, "
                 f"the connection hangs for about 20 s and then fails. Drop the "
                 f"parameter instead of passing an empty value."
             )
-        if isinstance(value, bool):
-            value = "true" if value else "false"
-        text = str(value)
+
+        # Whitespace inside a value, for a parameter nothing folds. There is no
+        # form of this that can be right: a username is one token on the CONNECT
+        # line, so the space either malforms the line or cuts the value short,
+        # and ``url()`` would percent-encode it to ``%20`` while a browser driver
+        # taking the fields separately would not - three spellings of one value,
+        # at most one of which any gateway accepts. Refusing it is loud, and loud
+        # beats a connection that succeeds with the setting quietly wrong.
+        whitespace = [c for c in text if c in ASCII_WHITESPACE]
+        if whitespace:
+            raise ParamError(
+                f"the value of {key!r} is {text!r} and contains whitespace "
+                f"({whitespace[0]!r}), which cannot be sent: a proxy username "
+                f"is a single token, so the value would be malformed or cut "
+                f"short. {provider.label} folds a space to an underscore for "
+                f"{sorted(provider.normalize)} and for nothing else, so pass "
+                f"{key!r} without whitespace."
+            )
+
         separators = sorted({provider.separator, provider.pair_separator} - {""})
         bad = sorted({c for c in separators if c in text})
         if bad:
