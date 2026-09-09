@@ -98,10 +98,34 @@ class Proxy:
         # the wrong class, the second the wrong sentence - both from `int()`
         # accepting more than a port is and then a truthiness test standing in
         # for a range check.
-        if raw_port in (None, ""):
+        #
+        # The provider's own port went through this rule from 2026-09-09; until
+        # then that fallback was assigned unchecked, so a definition carrying
+        # `port = 70000` built `host:70000` and nothing refused it. The value is
+        # now also checked in `providers.load_file`, which is the layer that can
+        # name the file it came from - this branch stays because `Provider` is a
+        # public dataclass and can be built in code without going through the
+        # loader.
+        #
+        # **Which of the two it was has to be said**, and the first version of
+        # this fix did not say it: one message served both, so a bad port in a
+        # TOML file was reported as `port=70000 is not a TCP port` followed by
+        # `the gateway's own ports are 70000`, blaming a `port=` argument the
+        # caller never passed and quoting the bad value back as the good one.
+        from_provider = raw_port in (None, "")
+        if from_provider:
             raw_port = self._provider.port
         self._port = None if raw_port is None else _port_number(str(raw_port))
         if raw_port is not None and self._port is None:
+            if from_provider:
+                raise CredentialsError(
+                    f"the {self._provider.label} definition gives its port as "
+                    f"{raw_port!r}, which is not a TCP port: it has to be a "
+                    f"whole number from 1 to 65535. Nothing was built. You "
+                    f"passed no port=, so this is the provider definition and "
+                    f"not your call - fix the definition, or pass port= to "
+                    f"override it."
+                )
             raise CredentialsError(
                 f"port={raw_port!r} is not a TCP port: it has to be a whole "
                 f"number from 1 to 65535. Nothing was built. The gateway's "

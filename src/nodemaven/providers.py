@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, FrozenSet, Optional, Tuple
 
+from .check import _port_number
 from .errors import ProviderError
 
 if sys.version_info >= (3, 11):  # pragma: no cover - version dependent
@@ -53,6 +54,21 @@ _ASCII_LOWER = str.maketrans(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
     "abcdefghijklmnopqrstuvwxyz",
 )
+
+
+def _fold(value: str) -> str:
+    """A value in its wire form: strip, ASCII lower-case, spaces to ``_``.
+
+    Module-level from 2026-09-09 so that ``load_file`` folds a configured
+    ``values`` list through the same three steps ``Provider.normalized`` folds a
+    caller's input through. It was inline in that method, and the two sides of
+    the comparison were therefore folded by one implementation and none: a
+    definition that both normalized ``region`` and listed
+    ``values.region = ["District of Columbia"]`` refused ``District of
+    Columbia``, because the input arrived at the check as
+    ``district_of_columbia`` and the legal list had never been touched.
+    """
+    return value.strip(ASCII_WHITESPACE).translate(_ASCII_LOWER).replace(" ", "_")
 
 
 @dataclass(frozen=True, eq=False)
@@ -146,7 +162,7 @@ class Provider:
         """
         if name not in self.normalize:
             return value
-        return value.strip(ASCII_WHITESPACE).translate(_ASCII_LOWER).replace(" ", "_")
+        return _fold(value)
 
     @property
     def is_measured(self) -> bool:
@@ -254,7 +270,17 @@ def load_file(path, provider_id: Optional[str] = None) -> Provider:
     # cannot be observed, because a country code and a pool name have no spaces
     # in them to convert. One rule that four languages have to agree on beats
     # two.
-    normalize = frozenset(str(name) for name in (raw.get("normalize") or ()))
+    raw_normalize = raw.get("normalize")
+    if raw_normalize is not None and not isinstance(raw_normalize, list):
+        # `normalize = 1` raised a bare `TypeError: 'int' object is not
+        # iterable` until 2026-09-09, and `normalize = "region"` was worse than
+        # that: a string iterates into its characters, so it reached the check
+        # below and was reported as five unknown parameter names.
+        raise ProviderError(
+            f"{path} gives normalize as {raw_normalize!r}. It has to be a list "
+            f"of parameter names."
+        )
+    normalize = frozenset(str(name) for name in (raw_normalize or ()))
     unknown_normalize = sorted(normalize - known)
     if unknown_normalize:
         raise ProviderError(
@@ -262,6 +288,17 @@ def load_file(path, provider_id: Optional[str] = None) -> Provider:
             f"known_params, so those parameters are refused by name and the "
             f"fold can never run."
         )
+
+    # A legal-values list for a folded parameter is folded too, from 2026-09-09.
+    # The caller's value is folded before it is checked, so an unfolded list
+    # refuses exactly the values a definition went to the trouble of declaring
+    # legal. Doing it here rather than at the comparison keeps one folded form
+    # in the object, so the message that lists the legal values quotes what the
+    # check actually compared against.
+    values = {
+        name: tuple(_fold(item) for item in allowed) if name in normalize else allowed
+        for name, allowed in values.items()
+    }
 
     # What each CONNECT status means on this gateway. Keys are the status code as
     # a string, because TOML has no integer keys and JSON has none either - and
@@ -309,7 +346,28 @@ def load_file(path, provider_id: Optional[str] = None) -> Provider:
                     f"inserted. Pick one."
                 )
 
+    # Through `check._port_number`, the same one `Proxy` uses, and for the same
+    # reason a comment in `proxy.py` gives at length: a rule with two
+    # implementations is how the two languages here drifted apart once already.
+    #
+    # This check did not exist until 2026-09-09. It was `int(port)`, which
+    # accepts `70000` and `-1` and raises a bare `ValueError` on `"abc"` instead
+    # of this module's `ProviderError`. A definition carrying `port = 70000`
+    # loaded without complaint and `Proxy` then built `gateway.example:70000`,
+    # because the branch taking the provider's port as a fallback was the one
+    # branch that skipped the port rule. That branch was corrected the same day;
+    # correcting it there alone would have left the wrong layer reporting it -
+    # the value comes from this file, so the error has to name this file.
     port = raw.get("port")
+    if port is not None:
+        checked = _port_number(str(port))
+        if checked is None:
+            raise ProviderError(
+                f"{path} gives port as {port!r}. It has to be a whole number "
+                f"from 1 to 65535; 0 means 'any free port' when binding and is "
+                f"meaningless when connecting."
+            )
+        port = checked
     return Provider(
         id=provider_id or path.stem,
         label=str(raw["label"]),
@@ -320,7 +378,7 @@ def load_file(path, provider_id: Optional[str] = None) -> Provider:
         pair_separator=pair_separator,
         session_param=session_param,
         host=raw.get("host"),
-        port=int(port) if port is not None else None,
+        port=port,
         aliases=aliases,
         values=values,
         normalize=normalize,

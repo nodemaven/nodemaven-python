@@ -1070,6 +1070,18 @@ class Client:
 
         Stopping on empty costs one extra request per walk and cannot truncate.
 
+        **The offset advances by the rows returned, not by the limit asked
+        for**, corrected 2026-09-09 from the same measurement and some hours
+        after it. Advancing by the limit skips whatever the cap withheld:
+        ``cities(limit=10000)`` asked for offset 10000 next, which is 8035 rows
+        past the end, so the walk collected 1000 rows of 1965 - the exact
+        truncation the stop rule above had just been rewritten to prevent, by a
+        different route. The suite hid it. ``test_the_capped_page_that_the_old_
+        rule_truncated`` counted rows and never read the query string, and the
+        fake transport replays its queue whatever the offset says, so it passed
+        under both rules; the two tests that did read the offsets asserted the
+        wrong ones, one of them in its own name.
+
         **An empty ``next`` is not read as the end of the collection** either,
         and that is the point of this method rather than a detail of it. A full
         page with no total and no next url is byte-for-byte what a complete
@@ -1492,9 +1504,17 @@ def _interpret(status: int, raw: bytes, method: str, url: str) -> Any:
             f"{where} found nothing: {detail}.", status=status, body=parsed
         )
     if status == 429:
+        # This said "wait the server's own interval if it gave one, in
+        # retry_after" until 2026-09-09, and `retry_after` is always `None`
+        # here: `Transport` hands back `(status, bytes)` and the headers are
+        # discarded before this function sees them, so a `Retry-After` the
+        # server did send cannot reach the attribute the message points at.
+        # A test one file over pinned it as `None` the whole time.
         raise RateLimitError(
-            f"{where} was rate limited: {detail}. Nothing here retries - wait the "
-            f"server's own interval if it gave one, in retry_after.",
+            f"{where} was rate limited: {detail}. Nothing here retries, and this "
+            f"client cannot tell you the server's interval - it reads no "
+            f"response headers, so retry_after is always None. Back off on your "
+            f"own schedule.",
             status=status,
             body=parsed,
         )
@@ -1579,6 +1599,19 @@ def _next_step(page: Page) -> Optional[Tuple[str, Dict[str, Any]]]:
     that rule truncates against a server that caps the size below the request -
     which this one does, at ``limit=1000`` on ``cities``, where the collection is
     1965. See :meth:`Client.iterate`.
+
+    **The cursor advances by the rows that came back, not by the size that was
+    asked for**, and that is the same measurement applied a second time. It was
+    ``cursor + size`` until 2026-09-09, which is only the same number while the
+    server never returns fewer rows than requested; against the ceiling above,
+    ``cities(limit=10000)`` walked 0 then 10000, landed 8035 rows past the end of
+    the collection, and returned 1000 of 1965. Both halves of this function were
+    written from one measurement in one sitting and only one of them was
+    changed, so the docstring stating the ceiling sat directly above the code
+    ignoring it.
+
+    ``size`` is still read, and only to refuse a walk whose size key is missing
+    or not a positive whole number. It no longer takes part in the arithmetic.
     """
     path = page.request_path
     asked = page.request_params

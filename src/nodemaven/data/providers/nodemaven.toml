@@ -332,6 +332,10 @@ looks like a name the gateway knows and a pool this account cannot reach. That \
 is one ISP, so read it as the narrower fact and not as a rule. The account \
 API's ISP catalogue, filtered by country, is what says which names exist."""
 500 = """\
-a 500 was measured when `city` was sent without a `region`; this status may also \
-represent another gateway failure. Add the region the account API's city catalogue \
-files that city under; a city name the catalogue does not hold is answered 406."""
+one cause is measured and it is not the only cause a 500 can have: `city` sent \
+without a `region`. `country`+`region`+`city` opens the tunnel on two different \
+cities in two different regions, and dropping the `region` from either of them \
+turns the same request into a 500 - that much is an incomplete request answered \
+as a server fault. Try the region the account API's city catalogue files that \
+city under. A city name the catalogue does not hold is answered 406 instead. \
+Any other 500 is the gateway's own, and this sentence cannot tell them apart."""

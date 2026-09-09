@@ -29,12 +29,36 @@ def flat(text: str) -> str:
 
 
 def _headings(readme: str) -> set:
-    """Every heading as GitHub would anchor it: lowered, punctuation dropped."""
-    return {
-        re.sub(r"[^a-z0-9 -]", "", line.lstrip("#").strip().lower()).replace(" ", "-")
-        for line in readme.splitlines()
-        if line.startswith("#")
-    }
+    """Every heading as GitHub would anchor it: lowered, punctuation dropped.
+
+    **Lines inside fenced code blocks are skipped, and a heading needs a space
+    after its hashes**, both from 2026-09-09. Before that this took any line
+    beginning with `#`, which in this README means every Python and TOML
+    comment inside every example - `# Statistics are per proxy username`
+    became the anchor `statistics-are-per-proxy-username`, and GitHub creates
+    no such anchor.
+
+    That made the two anchor tests below weaker than they read. They check that
+    every in-page link points at a heading that exists; with comments in the
+    set, a link could point at a comment and pass. The tests were not wrong
+    about their subject, they were quietly checking a superset of it, and a
+    superset is exactly the shape a passing test takes when it has stopped
+    testing anything.
+    """
+    headings = set()
+    fenced = False
+    for line in readme.splitlines():
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        stripped = line.strip()
+        if not re.match(r"^#{1,6} ", stripped):
+            continue
+        text = stripped.lstrip("#").strip().lower()
+        headings.add(re.sub(r"[^a-z0-9 -]", "", text).replace(" ", "-"))
+    return headings
 
 
 @pytest.fixture(scope="module")
@@ -132,6 +156,52 @@ class TestTheReadmeIsSelfConsistent:
         anchors = set(re.findall(r"\]\(#([a-z0-9-]+)\)", readme))
         assert len(anchors) > 5, "the anchor scan found almost nothing"
         assert anchors <= _headings(readme), anchors - _headings(readme)
+
+    def test_a_comment_in_a_code_block_is_not_read_as_a_heading(self):
+        # The two tests above check that every in-page link points at a heading
+        # that exists. That is only worth something if the heading set is the
+        # headings - until 2026-09-09 it also held every `#` comment in every
+        # example, so a link could point at a comment and pass. Both tests were
+        # green the whole time, on a superset of their own subject.
+        #
+        # Written against a fixture rather than against the README, because the
+        # rule is about `_headings` and a README that happens to have no
+        # comment starting with a word would satisfy it by accident.
+        sample = "\n".join(
+            [
+                "# Real Heading",
+                "",
+                "```python",
+                "# Statistics are per proxy username",
+                "#### not a heading either",
+                "```",
+                "",
+                "## Second Real Heading",
+                "#no space after the hashes",
+            ]
+        )
+        assert _headings(sample) == {"real-heading", "second-real-heading"}
+
+    def test_no_statistics_example_carries_an_iso_date(self, blocks):
+        # The server parses `dd-mm-yyyy` and answers an ISO date 400, measured
+        # 2026-09-09 by `--phase 10`. The examples carried ISO until that day.
+        #
+        # Scoped to the fenced blocks on purpose: the prose two paragraphs down
+        # quotes `start=2026-08-20` as the form that fails, and a scan over the
+        # whole file would have to be written to permit the very string it is
+        # looking for. A test that has to make an exception for the correct case
+        # is one edit away from making it for the wrong one.
+        dated = [
+            value
+            for _language, body in blocks
+            for value in re.findall(r"(?:start|end)_date=\"([^\"]+)\"", body)
+        ]
+        assert dated, "no dated example was found, so nothing was checked"
+        for value in dated:
+            assert re.fullmatch(r"\d{2}-\d{2}-\d{4}", value), (
+                f"a statistics example dates as {value!r}; this server parses "
+                f"dd-mm-yyyy and answers ISO 400"
+            )
 
 
 class TestTheParameterTable:

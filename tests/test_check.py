@@ -21,7 +21,7 @@ import threading
 
 import pytest
 
-from nodemaven import Check, CheckError, Proxy
+from nodemaven import Check, CheckError, ParamError, Proxy
 from nodemaven.check import connect
 
 REACTIONS = {
@@ -754,12 +754,12 @@ class TestSessions:
 
     def test_a_nonsense_count_is_refused(self):
         proxy = Proxy(login="acct", password="pw")
-        with pytest.raises(Exception, match="no identities"):
+        with pytest.raises(ParamError, match="no identities"):
             proxy.sessions(0)
 
     def test_a_nonsense_length_is_refused(self):
         proxy = Proxy(login="acct", password="pw")
-        with pytest.raises(Exception, match="length"):
+        with pytest.raises(ParamError, match="length"):
             proxy.sessions(2, length=0)
 
     def test_more_ids_than_exist_is_refused_rather_than_looped_forever(self):
@@ -773,7 +773,7 @@ class TestSessions:
         # the reason it is written against `length=1`: the failure is cheap to
         # provoke at 256 values and impossible to provoke at 2**48.
         proxy = Proxy(login="acct", password="pw")
-        with pytest.raises(Exception, match="at least the whole space"):
+        with pytest.raises(ParamError, match="at least the whole space"):
             proxy.sessions(257, length=1)
 
     def test_the_whole_space_is_refused_and_one_less_is_not(self):
@@ -792,7 +792,7 @@ class TestSessions:
         # by writing the same bound into the README and finding the two
         # sentences could not both be true.
         proxy = Proxy(login="acct", password="pw")
-        with pytest.raises(Exception, match="at least the whole space"):
+        with pytest.raises(ParamError, match="at least the whole space"):
             proxy.sessions(256, length=1)
         assert len({p.params["sid"] for p in proxy.sessions(255, length=1)}) == 255
 

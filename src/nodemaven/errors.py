@@ -98,6 +98,21 @@ class RateLimitError(ApiError):
     for the same reason applies less here. Waiting the number the server gave
     you is not the behaviour that measurement warns about; a loop that ignores
     it is.
+
+    **``nodemaven.api.Client`` never fills it in, so from that client it is
+    always ``None``**, said here from 2026-09-09. The reason is structural
+    rather than an oversight to be worked around: ``api.Transport`` returns
+    ``(status, bytes)`` and discards the response headers, so ``Retry-After``
+    is gone before anything could read it. The paragraph above described the
+    attribute as though the client populated it, and the 429 message told
+    callers to go and read it - an instruction that could not be followed on
+    any 429 this package raises. The attribute stays, because it is part of
+    this class rather than of that one transport and a caller raising it by
+    hand can set it; what was wrong was the promise, not the field.
+
+    Surfacing the header means widening the ``Transport`` return type, which is
+    a public protocol implemented in four languages. That is a version's worth
+    of change and it is not made here.
     """
 
     def __init__(

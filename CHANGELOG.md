@@ -808,6 +808,106 @@ Five of the vendor's 24 paths are deliberately not wrapped: `locations/all-doc/`
 `notifications/`, `llm/submit/`, `llm/results/{id}/` and `llm/balance/`. The
 omission is listed rather than left silent.
 
+### What a review of the above found, 2026-09-09
+
+Ten fixes, from an automated review of the pull request carrying the section
+above. Two of its twelve findings were declined and are recorded here as well,
+because a declined finding is a decision and reads as an oversight if it is not
+written down.
+
+Worth stating as one thing rather than ten, because it is the pattern and not
+the bugs: **in three of these the reasoning was written correctly in the comment
+directly above the code, and the code beside it did something else.** The
+paging comment described advancing by rows returned while the line added the
+limit; the port comment said the value could come from the definition while the
+message blamed the caller; the 429 message told the reader to consult a field
+this client cannot fill. Prose next to code is not a test of that code, and it
+is worse than no prose, because it is what a later reader checks against.
+
+- **`iterate()` advanced the offset by the limit asked for rather than by the
+  rows returned.** `cities(limit=10000)` requested offset 0 then offset 10000
+  against a server that caps that collection at 1000 rows of 1965, so it walked
+  off the end and returned 1000 of 1965. The cap was already measured, already
+  written into this module's docstrings, and the fix had been applied to the
+  stop condition - stop on an *empty* page, not a short one - and not to the
+  advance, in the same sitting.
+
+  The suite did not catch it and the reason is worth more than the fix. Three
+  tests covered the case. Two asserted the wrong offsets, one of them saying so
+  in its own name - `test_a_caller_who_raised_the_limit_pages_at_that_limit` -
+  and the third counted rows only, which cannot fail, because the fake transport
+  replays a queued list of pages whatever query string it is handed. So a test
+  named after the capped page passed under the broken rule. All three now assert
+  the offset sequence.
+
+- **`RateLimitError.retry_after` is always `None` from this client, and both the
+  message and the class said otherwise.** The 429 said to wait the server's own
+  interval "in `retry_after`" - an instruction that could not be followed on any
+  429 this package raises, because `Transport` returns `(status, bytes)` and the
+  response headers are gone before anything could read `Retry-After`. The
+  message now says the client cannot report the interval and that you should
+  back off on your own schedule. The attribute stays: it belongs to the class
+  rather than to this one transport, and a caller raising it by hand can set it.
+  What was wrong was the promise, not the field. Surfacing the header means
+  widening a public protocol implemented in four languages, and that is a
+  version's worth of change.
+
+- **The README's statistics examples sent ISO dates**, which this server answers
+  `400`. The prose two paragraphs below them had already been corrected against
+  `--phase 10` on the same day; the examples were left, so the section explained
+  the right rule and demonstrated the wrong one. A test now reads the dates out
+  of the fenced blocks and refuses anything that is not `dd-mm-yyyy`. It is
+  scoped to the blocks deliberately - the prose quotes `start=2026-08-20` as the
+  form that fails, and a whole-file scan would have to permit the exact string
+  it is hunting for.
+
+- **A provider definition's `port` is validated when the definition loads**, not
+  coerced with `int()` and not left to fail later. `int()` accepted `0`, which
+  means "any free port" when binding and nothing at all when connecting, and it
+  raised `ValueError` rather than `ProviderError` on text. A bad port in a
+  shipped TOML now fails at load with the file named.
+
+- **A bad port from the provider definition no longer blames the caller.**
+  `Proxy` falls back to the definition's port when none is passed, and the
+  refusal said `port=... is not a TCP port`, naming an argument the caller did
+  not supply. The two cases now raise separately: one names the definition and
+  says to fix it or pass `port=` to override, the other is unchanged.
+
+- **`normalize` and `connect_reactions` are type-checked at load.** A
+  `normalize` given as a string was iterated character by character, so
+  `normalize = "city"` silently produced the parameter names `c`, `i`, `t`, `y`
+  and normalized nothing. Both now raise `ProviderError` naming the file.
+
+- **A `values` list is folded when its parameter is normalized.** The fold -
+  strip, ASCII lower-case, spaces to `_` - is applied to what the caller passes,
+  and was not applied to the legal values it is checked against, so a definition
+  listing `District of Columbia` refused the value it was written to allow. The
+  fold is now one function, `_fold`, called from both places; it was two copies
+  of three operations before, which is how they came apart.
+
+- **`tests/test_check.py` caught `Exception` in four places** where it meant
+  `ParamError`. `pytest.raises(Exception)` passes on a `TypeError` from a
+  refactor that broke the call, which is the failure those tests exist to
+  report.
+
+- **`_headings()` in `tests/test_readme.py` read every `#` comment in every
+  example as a heading.** The two tests that check in-page links point at real
+  headings were therefore checking a superset: a link pointing at a code comment
+  would have passed. They were green throughout and had stopped testing their
+  subject.
+
+Two findings were declined:
+
+- **Repeated headers in a `Check` are still collapsed to the last one.**
+  Carrying them all means `Check.headers` stops being a `dict`, which is a
+  breaking change to a documented attribute, and no measured gateway reaction
+  depends on a repeated header. It is a design decision for a later version, not
+  a fix.
+
+- **A test that scans the source for imports** was proposed as a replacement for
+  a narrower one. The replacement was not specific enough to pin anything, and a
+  test that is vague about what it forbids is the shape the two above had.
+
 ## 0.1.2 - 2026-08-26 09:23
 
 - **`values`**, a per-parameter list of legal values, added to the provider

@@ -693,8 +693,9 @@ client.zip_code_regions(country__code="us")
 client.zip_code_cities(country__code="us", region__code="dc")
 
 # Statistics are per proxy username, and the username is required.
-client.statistics_data("acct-1", start_date="2026-09-01", end_date="2026-09-07")
-client.statistics_requests("acct-1", start_date="2026-09-01")
+# The dates are `dd-mm-yyyy`. ISO is answered 400 - see below.
+client.statistics_data("acct-1", start_date="01-09-2026", end_date="07-09-2026")
+client.statistics_requests("acct-1", start_date="01-09-2026")
 client.domain_statistics("acct-1")
 
 client.sub_users(page=1)
@@ -709,7 +710,19 @@ client.upsert_whitelist_ip("203.0.113.7", 10, name="the office")
 client.delete_whitelist_ip(id)
 ```
 
-The dates go as `dd-mm-yyyy`. The vendor's documentation types them as ISO dates (`format: date`), but the server parses `dd-mm-yyyy` and answers `yyyy-mm-dd` with a 400 - so send `20-08-2026`, not `2026-08-20`.
+The dates go as `dd-mm-yyyy`, measured 2026-09-09 by `--phase 10`:
+`start=20-08-2026` is answered **200 with 21 data points** and
+`start=2026-08-20` is answered **400**, with a body byte-identical to the one
+`start=not-a-date` draws. The vendor's document writes the format both ways -
+`dd-mm-yyyy` in the prose, `format: date` in the type - and **the prose is the
+half that is right**. So ISO is not a rival spelling the server declines, it is
+a string the server cannot parse, and every client generated from that
+specification sends the one form that fails.
+
+This paragraph said the opposite until 2026-09-09, and said it for the worst
+possible reason: "the type is what the server parses" was an inference about
+which half of a self-contradicting document to trust, written before either
+half had been sent. The measurement cost one request.
 
 **`sub_users()` returns each sub-user's `proxy_password` in clear text**, on
 every row, by the specification's own required-field list. So does `me()`. Do
