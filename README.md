@@ -693,10 +693,11 @@ client.zip_code_regions(country__code="us")
 client.zip_code_cities(country__code="us", region__code="dc")
 
 # Statistics are per proxy username, and the username is required.
-# The dates are `dd-mm-yyyy`. ISO is answered 400 - see below.
-client.statistics_data("acct-1", start_date="01-09-2026", end_date="07-09-2026")
-client.statistics_requests("acct-1", start_date="01-09-2026")
-client.domain_statistics("acct-1")
+# The range is `start` and `end`, not `start_date` and `end_date`, and the
+# dates are `dd-mm-yyyy`. ISO is answered 400 - see below.
+client.statistics_data("acct-1", start="01-09-2026", end="07-09-2026")
+client.statistics_requests("acct-1", start="01-09-2026")
+client.domain_statistics("acct-1", period="hours24")
 
 client.sub_users(page=1)
 client.create_sub_user("worker-1", "a-password", traffic_limit=1024)
