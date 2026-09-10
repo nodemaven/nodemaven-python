@@ -8,15 +8,29 @@ itself is built on: a change to what the gateway is believed to accept carries
 the probe that established it and the date it was run. "The vendor's documentation
 says so" is not one of those, and an entry that rests on it says so outright.
 
-## Unreleased
+## 0.1.4 - 2026-09-10
 
-**PyPI serves 0.1.3 and `__version__` in this tree is also `0.1.3`**, so the two
-are different libraries answering the same number. That is deliberate - bumping
-the version is step 1 of the release procedure and nothing here releases without
-an instruction - and it is written down because the last time it happened nobody
-wrote it down and two trees called themselves 0.1.1 for five days. Anything
-quoted about what `nodemaven` does has to say which tree it was read from until
-this is released.
+A patch release, and it exists because **the fix does not reach anyone without
+one**. The bug was reported against the README on the PyPI project page, and
+both halves of the fix - the long description and the extra - travel with a
+release and never with a push. Measured the same day, before this was cut:
+`pypi.org/pypi/nodemaven/json` reported `provides_extras: None` and
+`requires_dist: ['tomli>=1.1.0; python_version < "3.11"']` while the merged tree
+had already declared the extra.
+
+That is the same rule 0.1.3 proved in the other direction: `Source` and `Issues`
+sat in `pyproject.toml` from 0.1.1, the repository went public on 2026-09-08,
+and they reached the project page only when 0.1.3 shipped a day later.
+
+**On the number.** `0.1.3.2` was considered and is valid - PEP 440 allows a
+four-component release segment, `packaging.Version` accepts it, and it sorts
+`0.1.3 < 0.1.3.post1 < 0.1.3.1 < 0.1.3.2 < 0.1.4`. It was rejected because the
+third component already *is* the "small fix, nothing broken" signal, and no
+convention exists that reads a fourth as "smaller than a patch": an unfamiliar
+number does not communicate insignificance, it spends a reader's attention on
+the versioning scheme. `0.1.3.post1` was rejected on the spec rather than on
+taste - PEP 440 reserves post-releases for corrections that do **not** affect
+the distributed software, and this one adds an installable extra.
 
 ### `pip install nodemaven[requests]`
 
