@@ -1,19 +1,28 @@
-"""Every output the README quotes, compared against the real thing.
+"""Every output the documentation quotes, compared against the real thing.
 
 This file exists because the one quotation in the README that had no test drifted
 without anyone noticing: it listed nine parameter names where the code produced
 ten, and the Rust port's equivalent test is what caught it. The rule that came
-out of that is the reason this file is here - **a README that quotes real output
-needs a test per quotation, or the quotation is a comment.**
+out of that is the reason this file is here - **a document that quotes real
+output needs a test per quotation, or the quotation is a comment.**
 
 Comparisons collapse whitespace. That is deliberate and it is the only slack
 allowed: a paragraph in a fenced block has to be re-wrappable to stay readable at
 80 columns, and nothing else about it may change. Every word still has to match.
+
+**It covers `docs/` as well as `README.md`, from 2026-09-10.** The README was 984
+lines and half of it was reference and measurement, so it was split. The split is
+the moment those tests were most likely to become green no-ops - every one of
+them scanned `README.md` by name, and content moving out from under a scan is
+exactly the shape a test takes when it stops testing anything. So the fixtures
+below are the corpus, the per-file checks say which file they mean, and every
+scan asserts it found something before it checks it.
 """
 
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -21,7 +30,19 @@ import pytest
 from nodemaven import Proxy, load
 from nodemaven.check import Check
 
-README = Path(__file__).resolve().parent.parent / "README.md"
+ROOT = Path(__file__).resolve().parent.parent
+README = ROOT / "README.md"
+DOCS = ROOT / "docs"
+
+#: The documents this file is responsible for. Named rather than globbed: a new
+#: file under `docs/` should fail this suite until somebody decides what checks
+#: it is owed, and a glob would adopt it silently with none.
+DOCUMENTS = {
+    "README.md": README,
+    "docs/api-reference.md": DOCS / "api-reference.md",
+    "docs/validation.md": DOCS / "validation.md",
+    "docs/observed-behavior.md": DOCS / "observed-behavior.md",
+}
 
 
 def flat(text: str) -> str:
@@ -33,12 +54,12 @@ def _headings(readme: str) -> set:
 
     **Lines inside fenced code blocks are skipped, and a heading needs a space
     after its hashes**, both from 2026-09-09. Before that this took any line
-    beginning with `#`, which in this README means every Python and TOML
+    beginning with `#`, which in these files means every Python and TOML
     comment inside every example - `# Statistics are per proxy username`
     became the anchor `statistics-are-per-proxy-username`, and GitHub creates
     no such anchor.
 
-    That made the two anchor tests below weaker than they read. They check that
+    That made the anchor tests below weaker than they read. They check that
     every in-page link points at a heading that exists; with comments in the
     set, a link could point at a comment and pass. The tests were not wrong
     about their subject, they were quietly checking a superset of it, and a
@@ -61,9 +82,55 @@ def _headings(readme: str) -> set:
     return headings
 
 
+def _blocks(text: str):
+    """Every fenced block in one document, with its language tag."""
+    return re.findall(r"```([a-z]*)\n(.*?)```", text, re.DOTALL)
+
+
+def _imports(blocks) -> set:
+    """Every module name imported by a Python block, top level only."""
+    return {
+        module
+        for language, body in blocks
+        if language == "python"
+        for module in re.findall(r"^\s*(?:import|from)\s+([\w]+)", body, re.M)
+    }
+
+
 @pytest.fixture(scope="module")
-def readme() -> str:
-    return README.read_text(encoding="utf-8")
+def documents() -> dict:
+    missing = [name for name, path in DOCUMENTS.items() if not path.exists()]
+    assert missing == [], f"a document this suite checks is gone: {missing}"
+    return {
+        name: path.read_text(encoding="utf-8") for name, path in DOCUMENTS.items()
+    }
+
+
+@pytest.fixture(scope="module")
+def readme(documents: dict) -> str:
+    return documents["README.md"]
+
+
+@pytest.fixture(scope="module")
+def reference(documents: dict) -> str:
+    return documents["docs/api-reference.md"]
+
+
+@pytest.fixture(scope="module")
+def behavior(documents: dict) -> str:
+    return documents["docs/observed-behavior.md"]
+
+
+@pytest.fixture(scope="module")
+def corpus(documents: dict) -> str:
+    """Every document at once.
+
+    For assertions of the form "the documentation says X" - which file says it
+    is an editing decision and should not fail a test. Assertions about layout,
+    about what a reader arriving from PyPI sees, or about one section's contract
+    take the single-file fixture instead.
+    """
+    return "\n\n".join(documents.values())
 
 
 @pytest.fixture(scope="module")
@@ -80,9 +147,9 @@ def prose(readme: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def blocks(readme: str):
-    """Every fenced block in the file, with its language tag."""
-    return re.findall(r"```([a-z]*)\n(.*?)```", readme, re.DOTALL)
+def blocks(corpus: str):
+    """Every fenced block in the corpus, with its language tag."""
+    return _blocks(corpus)
 
 
 class TestTheReadmeIsSelfConsistent:
@@ -103,15 +170,15 @@ class TestTheReadmeIsSelfConsistent:
         assert "nothing here sends one" not in prose
 
     def test_the_account_api_separates_what_was_called_from_what_was_not(
-        self, readme: str
+        self, behavior: str
     ):
         # Documenting a call with an example is a claim that it works, so the
-        # section has to say which calls that claim rests on. Until 2026-09-08
-        # the answer was "none of them" and this test pinned the words
-        # "transcribed, not measured". Calls were then sent to the live API and
-        # the paragraph had to change - which is exactly what it was pinned for,
-        # and it is pinned again for the same reason: the next call that gets
-        # measured moves the boundary again.
+        # documentation has to say which calls that claim rests on. Until
+        # 2026-09-08 the answer was "none of them" and this test pinned the
+        # words "transcribed, not measured". Calls were then sent to the live
+        # API and the paragraph had to change - which is exactly what it was
+        # pinned for, and it is pinned again for the same reason: the next call
+        # that gets measured moves the boundary again.
         #
         # It moved a second time on 2026-09-09, in the other direction. The
         # section used to argue that transcribed paths were safe to ship because
@@ -119,11 +186,20 @@ class TestTheReadmeIsSelfConsistent:
         # and the dashboard's own HTML, so that argument was never true here.
         # The retraction is pinned too, because the tempting edit is to delete a
         # wrong sentence rather than to say what it cost.
-        section = readme.split("## Account API", 1)[1].split("\n## ", 1)[0]
+        #
+        # It moved a third time on 2026-09-10, and that one is why this test now
+        # names the writes explicitly. The wording it used to pin - "still never
+        # been called" - had been false since the day before, when `--phase 11`
+        # sent all five, and it was false in `api.py`'s module docstring at the
+        # same time while that file's own method docstrings recorded the runs.
+        # A test that pins the cautious half of a claim keeps the caution alive
+        # after the measurement has replaced it.
+        section = behavior.split("## A wrong path is not answered 404", 1)[1]
+        section = section.split("\n## ", 1)[0]
         assert "measured" in section and "transcribed" in section
-        assert "still never been called" in section
         assert "negative control" in section
-        # The five are named. A count with no names cannot be checked by a
+        assert "all five wrapped write calls were measured" in section
+        # The read five are named. A count with no names cannot be checked by a
         # reader, and cannot be checked here either.
         for path in ("users/me", "countries", "regions", "cities", "isps"):
             assert f"`{path}`" in section, path
@@ -138,7 +214,7 @@ class TestTheReadmeIsSelfConsistent:
             for name in nodemaven.__all__
             if name.endswith("Error") and name != "NodeMavenError"
         ]
-        table = readme.split("## Errors", 1)[1].split("##", 1)[0]
+        table = readme.split("## Errors", 1)[1].split("\n## ", 1)[0]
         missing = [name for name in exported if f"`{name}`" not in table]
         assert missing == [], f"exported and undocumented: {missing}"
 
@@ -148,18 +224,46 @@ class TestTheReadmeIsSelfConsistent:
         assert anchors, "the nav line was not found, so nothing was checked"
         assert set(anchors) <= _headings(readme), set(anchors) - _headings(readme)
 
-    def test_every_anchor_in_the_body_points_at_a_heading_too(self, readme: str):
+    @pytest.mark.parametrize("name", sorted(DOCUMENTS))
+    def test_every_in_page_anchor_points_at_a_heading_in_that_page(
+        self, name, documents: dict
+    ):
         # Widened from the nav line after a section was renamed and two links
-        # elsewhere in the file went on pointing at the old anchor. GitHub
-        # renders a dead in-page link as ordinary text that does nothing when
-        # clicked - no 404, no warning - so nothing but this would have said so.
-        anchors = set(re.findall(r"\]\(#([a-z0-9-]+)\)", readme))
-        assert len(anchors) > 5, "the anchor scan found almost nothing"
-        assert anchors <= _headings(readme), anchors - _headings(readme)
+        # elsewhere went on pointing at the old anchor. GitHub renders a dead
+        # in-page link as ordinary text that does nothing when clicked - no 404,
+        # no warning - so nothing but this would have said so.
+        #
+        # Parametrised over the documents from 2026-09-10. Before the split this
+        # was one scan of README.md; had it stayed that way, the three files the
+        # content moved into would have had no anchor checking at all, and they
+        # are where most of the anchors now are.
+        text = documents[name]
+        anchors = set(re.findall(r"\]\(#([a-z0-9-]+)\)", text))
+        assert anchors, f"{name} has no in-page links, so nothing was checked"
+        assert anchors <= _headings(text), (name, anchors - _headings(text))
+
+    @pytest.mark.parametrize("name", sorted(DOCUMENTS))
+    def test_every_cross_document_anchor_points_at_a_heading_that_exists(
+        self, name, documents: dict
+    ):
+        # `docs/api-reference.md` links into `docs/observed-behavior.md` by
+        # anchor, and a rename on either side breaks it silently the same way an
+        # in-page link breaks. The split created these links; nothing checked
+        # them until this test.
+        text = documents[name]
+        links = re.findall(r"\]\((?:\.\./)?(?:docs/)?([a-z-]+\.md)#([a-z0-9-]+)\)", text)
+        if not links:
+            pytest.skip(f"{name} links into no other document by anchor")
+        for target, anchor in links:
+            key = next(
+                (k for k in documents if k.endswith(target)), None
+            )
+            assert key, f"{name} links at {target}, which this suite does not know"
+            assert anchor in _headings(documents[key]), (name, target, anchor)
 
     def test_a_comment_in_a_code_block_is_not_read_as_a_heading(self):
-        # The two tests above check that every in-page link points at a heading
-        # that exists. That is only worth something if the heading set is the
+        # The tests above check that every in-page link points at a heading that
+        # exists. That is only worth something if the heading set is the
         # headings - until 2026-09-09 it also held every `#` comment in every
         # example, so a link could point at a comment and pass. Both tests were
         # green the whole time, on a superset of their own subject.
@@ -219,11 +323,12 @@ class TestTheReadmeIsSelfConsistent:
         # The server parses `dd-mm-yyyy` and answers an ISO date 400, measured
         # 2026-09-09 by `--phase 10`. The examples carried ISO until that day.
         #
-        # Scoped to the fenced blocks on purpose: the prose two paragraphs down
-        # quotes `start=2026-08-20` as the form that fails, and a scan over the
-        # whole file would have to be written to permit the very string it is
-        # looking for. A test that has to make an exception for the correct case
-        # is one edit away from making it for the wrong one.
+        # Scoped to the fenced blocks on purpose: the prose in
+        # `docs/observed-behavior.md` quotes `start=2026-08-20` as the form that
+        # fails, and a scan over the whole text would have to be written to
+        # permit the very string it is looking for. A test that has to make an
+        # exception for the correct case is one edit away from making it for the
+        # wrong one.
         #
         # This matched `start_date=`/`end_date=` when it was written, because it
         # was written from the examples rather than from the API. Those names
@@ -259,6 +364,152 @@ class TestTheReadmeIsSelfConsistent:
                     f"{call} is shown with no start=, end= or period=, which "
                     f"this server answers 500"
                 )
+
+
+class TestTheExamplesAreInstallable:
+    """An example that imports something needs an install line that installs it.
+
+    Written 2026-09-10, after the first outside developer to install the package
+    reported the first block of the README failing with `ModuleNotFoundError: No
+    module named 'requests'`. Reproduced the same day against 0.1.3 from PyPI in
+    a venv holding only `nodemaven`.
+
+    Nothing in the suite could have caught it. `test_api.py` has a test whose
+    subject is "zero required dependencies" and it reads `api.py`'s source, so
+    it says nothing about a document. This file had 62 checks on the README and
+    every one of them checked what it *said*, not whether what it *showed* runs.
+    The gap was between two files that each looked covered.
+
+    The scan found a second one nobody had reported: the Playwright example has
+    the same defect and always had.
+    """
+
+    #: Modules an example may import with no install line. `nodemaven` is the
+    #: package itself; the rest is the standard library, taken from the
+    #: interpreter on 3.10 and newer and listed by hand below that, because CI
+    #: runs 3.9 and `sys.stdlib_module_names` does not exist there.
+    FREE = frozenset({"nodemaven"}) | frozenset(
+        getattr(sys, "stdlib_module_names", None)
+        or {
+            "base64", "dataclasses", "inspect", "json", "os", "pathlib", "re",
+            "secrets", "socket", "sys", "time", "typing", "urllib",
+        }
+    )
+
+    @pytest.mark.parametrize("name", sorted(DOCUMENTS))
+    def test_every_third_party_import_is_named_in_an_install_line(
+        self, name, documents: dict
+    ):
+        text = documents[name]
+        blocks = _blocks(text)
+        installs = " ".join(
+            body for language, body in blocks if "pip install" in body
+        )
+        imported = _imports(blocks)
+        for module in sorted(imported - self.FREE):
+            assert re.search(rf"\b{re.escape(module)}\b", installs), (
+                f"{name} shows `import {module}` and no `pip install` line in "
+                f"that file installs it; a reader copying the example gets "
+                f"ModuleNotFoundError"
+            )
+
+    def test_the_import_scan_still_finds_the_examples_it_was_written_for(
+        self, corpus: str
+    ):
+        """The found-something guard for the test above, in the one place it works.
+
+        It was written per-document, as `assert imported or not blocks`, and
+        `docs/validation.md` failed it correctly: that file's Python blocks use
+        `Proxy` from the surrounding text and import nothing at all, which is
+        not a defect. A guard that fires on a legitimate document is worse than
+        no guard, because the fix under time pressure is to delete it.
+
+        So the guard belongs over the corpus, where it can name what it expects.
+        `requests` and `playwright` are the two third-party modules the
+        documentation shows, and `requests` is the whole reason the extra
+        exists - if the scan stops seeing them, it is the scan that broke and
+        not the documentation.
+        """
+        imported = _imports(_blocks(corpus))
+        for module in ("requests", "playwright"):
+            assert module in imported, (
+                f"the scan no longer sees `import {module}` anywhere; the fenced "
+                f"blocks or the import regex changed and the install-line test "
+                f"above is now checking nothing"
+            )
+
+    def test_the_package_declares_the_extra_the_readme_tells_people_to_install(
+        self, readme: str
+    ):
+        # `pip install nodemaven[requests]` is only a real instruction if the
+        # extra exists. pip answers an undeclared extra with a warning and
+        # installs the package without it, so the example would fail exactly as
+        # before while the README looked fixed. `pyproject.toml` is read as text
+        # rather than through a TOML parser, because this suite runs on 3.9 where
+        # `tomllib` does not exist and the package's own `tomli` fallback is an
+        # optional install.
+        extras = re.findall(r"pip install nodemaven\[([a-z0-9_,-]+)\]", readme)
+        assert extras, "the README stopped naming an extra, so nothing was checked"
+
+        text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        declared = text.split("[project.optional-dependencies]", 1)[1]
+        declared = declared.split("\n[", 1)[0]
+        for group in extras:
+            for extra in group.split(","):
+                assert re.search(rf"^{re.escape(extra)}\s*=", declared, re.M), (
+                    f"the README says `pip install nodemaven[{extra}]` and "
+                    f"pyproject.toml declares no such extra"
+                )
+
+
+class TestTheReadmeLinksResolveOnPyPI:
+    """PyPI renders this file and resolves nothing relative.
+
+    A relative `](docs/validation.md)` resolves against
+    `pypi.org/project/nodemaven/` on the package page and answers 404 there,
+    which is CEO rule 1 - a production link that goes nowhere gets removed or
+    fixed. The rule was written in three HTML comments in the README and
+    enforced by nobody until the split created five links that could break it.
+
+    **Both tests run against `prose`, not against the raw file, and the first
+    run is why.** They were written against the raw text and failed on
+    `](LICENSE)` and `](docs/validation.md)` - two strings that are not links at
+    all, but the HTML comments explaining to an editor which spelling is
+    forbidden. So the test caught the notes documenting the rule instead of a
+    breach of it. The second test is worse in the same way and would not have
+    announced itself: a comment naming `docs/validation.md` satisfies
+    `name in text`, so with raw text it would have gone on passing after the
+    real link was deleted.
+    """
+
+    def test_no_link_in_the_readme_is_relative(self, prose: str):
+        links = re.findall(r"\]\(([^)]+)\)", prose)
+        assert links, "no links were found, so nothing was checked"
+        relative = [
+            target
+            for target in links
+            if not target.startswith(("#", "http://", "https://", "mailto:"))
+        ]
+        assert relative == [], (
+            f"relative links in the PyPI long description, which 404 there: "
+            f"{relative}"
+        )
+
+    def test_the_readme_links_at_every_document_this_suite_checks(
+        self, prose: str
+    ):
+        # The split is only an improvement if the pieces are reachable. A doc
+        # nobody links to is a doc nobody reads, and it goes stale first.
+        #
+        # Matched inside a `](...)` rather than anywhere in the text, so that
+        # naming a file in a sentence does not stand in for linking at it.
+        linked = re.findall(r"\]\(([^)]+)\)", prose)
+        for name in DOCUMENTS:
+            if name == "README.md":
+                continue
+            assert any(target.endswith(name) for target in linked), (
+                f"the README links at nothing named {name}"
+            )
 
 
 class TestTheParameterTable:
@@ -307,10 +558,10 @@ class TestTheParameterTable:
 
 
 class TestTheUnknownParameterMessage:
-    def test_the_readme_quotes_it_word_for_word(self, readme: str):
+    def test_the_documentation_quotes_it_word_for_word(self, corpus: str):
         # This is the quotation that drifted, and the test that would have caught
         # it. It is built from the shipped definition, so adding a parameter to
-        # the TOML fails here until the README is updated too.
+        # the TOML fails here until the documentation is updated too.
         #
         # Every block is checked, not the first one. This test used to pin
         # `quoting[0]` against a message raised from a typo hardcoded here, so it
@@ -320,11 +571,18 @@ class TestTheUnknownParameterMessage:
         # message in it - "Did you mean 'filter'?", which this library does not
         # say and never has. That is the failure this test exists to catch and it
         # caught it, but only because the new block landed first in the file.
+        #
+        # It runs over the corpus from 2026-09-10: the two quotations now live in
+        # two different files, and a scan of README.md alone would have stopped
+        # checking one of them without failing.
         from nodemaven import ParamError
 
-        blocks = re.findall(r"```[a-z]*\n(.*?)```", readme, re.DOTALL)
+        blocks = re.findall(r"```[a-z]*\n(.*?)```", corpus, re.DOTALL)
         quoting = [body for body in blocks if "ParamError:" in body]
-        assert quoting, "the README stopped quoting the message, so nothing was checked"
+        assert len(quoting) >= 2, (
+            "fewer ParamError quotations than there are documents that carry "
+            "one, so at least one stopped being checked"
+        )
 
         for body in quoting:
             typo = re.search(r"does not know the parameter '([^']+)'", flat(body))
@@ -335,24 +593,29 @@ class TestTheUnknownParameterMessage:
 
 
 class TestTheFoldedRegionExample:
-    def test_the_username_in_the_readme_is_what_the_code_builds(self, readme: str):
+    def test_the_username_in_the_readme_is_what_the_code_builds(self, corpus: str):
         # `region-district_of_columbia` is not an invention: it is the form the
         # dashboard itself emitted in a username for a real account, read
-        # 2026-09-07. The example is the one place the README shows the fold, so
-        # it is the one place a change to the fold has to be reflected.
+        # 2026-09-07. The example is the one place the fold is shown, so it is
+        # the one place a change to the fold has to be reflected.
         built = Proxy(
             login="u", password="p", region="District of Columbia"
         ).username
         assert built == "u-region-district_of_columbia"
-        assert built in readme
+        assert built in corpus
 
 
 class TestTheCheckOutput:
-    """The two blocks under "Asking the gateway".
+    """The two blocks in the quickstart.
 
     Built here rather than captured from the gateway, and that is what makes them
     checkable: a `Check` is a plain frozen object, so the README is quoting a
     real `__str__` of a real instance and not a hand-typed approximation of one.
+
+    They stay in the README rather than moving to `docs/` with the rest of the
+    gateway material, because `check()` is now the first call the quickstart
+    makes: it needs nothing but the package, so it is the one first run that
+    cannot fail on a missing dependency.
     """
 
     def test_the_200_line(self, readme: str):
@@ -417,40 +680,41 @@ class TestTheCheckOutput:
 
 
 class TestTheReferenceMatchesTheCode:
-    """The Reference section is a contract, so it gets the same treatment as a
+    """`docs/api-reference.md` is a contract, so it gets the same treatment as a
     quoted output: it is compared against the real thing rather than read.
 
-    Added with the section itself, 2026-09-08. The section exists because an
-    external review said the documentation was overloaded with justifications;
-    measuring that turned up the sharper version of the complaint - the package
-    exports 18 names and the README gave a signature for none of them, so for
-    several calls the rationale was the only coverage there was. A reference
-    written once and never checked would have been a worse answer than no
-    reference, because it reads as authoritative.
+    Added with the section itself, 2026-09-08, when it was the second half of
+    the README; it became its own file on 2026-09-10. The section exists because
+    an external review said the documentation was overloaded with
+    justifications; measuring that turned up the sharper version of the
+    complaint - the package exports 18 names and the README gave a signature for
+    none of them, so for several calls the rationale was the only coverage there
+    was. A reference written once and never checked would have been a worse
+    answer than no reference, because it reads as authoritative.
     """
 
-    def test_the_proxy_signature_names_every_real_argument(self, readme: str):
+    def test_the_proxy_signature_names_every_real_argument(self, reference: str):
         import inspect
 
-        block = readme.split("### `Proxy`", 1)[1].split("```", 2)[1]
+        block = reference.split("## `Proxy`", 1)[1].split("```", 2)[1]
         for name in inspect.signature(Proxy.__init__).parameters:
             if name == "self":
                 continue
             assert name in block, name
 
-    def test_the_client_signature_names_every_real_argument(self, readme: str):
+    def test_the_client_signature_names_every_real_argument(self, reference: str):
         import inspect
 
         from nodemaven import Client
 
-        block = readme.split("### `Client` and `Page`", 1)[1].split("```", 2)[1]
+        block = reference.split("## `Client` and `Page`", 1)[1].split("```", 2)[1]
         for name in inspect.signature(Client.__init__).parameters:
             if name == "self":
                 continue
             assert name in block, name
 
-    def test_every_public_proxy_call_is_in_the_reference(self, readme: str):
-        section = readme.split("### `Proxy`", 1)[1].split("### `Check`", 1)[0]
+    def test_every_public_proxy_call_is_in_the_reference(self, reference: str):
+        section = reference.split("## `Proxy`", 1)[1].split("## `Check`", 1)[0]
         missing = [
             name
             for name in dir(Proxy)
@@ -458,11 +722,11 @@ class TestTheReferenceMatchesTheCode:
         ]
         assert missing == [], f"public on Proxy and undocumented: {missing}"
 
-    def test_every_public_client_call_is_in_the_reference(self, readme: str):
+    def test_every_public_client_call_is_in_the_reference(self, reference: str):
         from nodemaven import Client
 
-        section = readme.split("### `Client` and `Page`", 1)[1]
-        section = section.split("### `Provider`", 1)[0]
+        section = reference.split("## `Client` and `Page`", 1)[1]
+        section = section.split("## `Provider`", 1)[0]
         missing = [
             name
             for name in dir(Client)
@@ -470,7 +734,7 @@ class TestTheReferenceMatchesTheCode:
         ]
         assert missing == [], f"public on Client and undocumented: {missing}"
 
-    def test_every_exported_name_appears_in_the_readme(self, readme: str):
+    def test_every_exported_name_appears_in_the_documentation(self, corpus: str):
         # The gap that produced this test: `available()` was exported and
         # appeared nowhere in 625 lines, so the only way to find it was to read
         # `__init__.py`.
@@ -479,24 +743,24 @@ class TestTheReferenceMatchesTheCode:
         missing = [
             name
             for name in nodemaven.__all__
-            if not name.startswith("_") and f"`{name}" not in readme
+            if not name.startswith("_") and f"`{name}" not in corpus
         ]
         assert missing == [], f"exported and unmentioned: {missing}"
 
 
 class TestTheAttributesTheReadmePromises:
     def test_every_field_a_check_carries_is_in_the_reference_table(
-        self, readme: str
+        self, reference: str
     ):
         """Derived from the dataclass, not from a list written here.
 
         This test used to carry the seven names by hand and look for
-        ``result.<name>`` anywhere in the file, which matched a code block under
-        "Asking the gateway" that said the same thing as the reference table.
-        Two copies of one contract with the test pinning one of them is how the
-        other drifts - it is the failure this whole file was written after. The
-        block is gone, the table is the one copy, and the names now come from
-        the type so that adding a field fails here until it is documented.
+        ``result.<name>`` anywhere in the file, which matched a code block that
+        said the same thing as the reference table. Two copies of one contract
+        with the test pinning one of them is how the other drifts - it is the
+        failure this whole file was written after. The block is gone, the table
+        is the one copy, and the names now come from the type so that adding a
+        field fails here until it is documented.
         """
         import dataclasses
 
@@ -504,7 +768,7 @@ class TestTheAttributesTheReadmePromises:
         # `ok` is a property rather than a field, and is the one a caller reads
         # first, so it is named explicitly rather than left to the derivation.
         names.append("ok")
-        table = readme.split("### `Check`", 1)[1].split("###", 1)[0]
+        table = reference.split("## `Check`", 1)[1].split("\n## ", 1)[0]
         missing = [name for name in names if f"`.{name}`" not in table]
         assert missing == [], f"a Check field the reference does not list: {missing}"
 
@@ -512,7 +776,7 @@ class TestTheAttributesTheReadmePromises:
         "attribute",
         ["ok", "status", "reason", "exit_ip", "elapsed", "headers", "meaning"],
     )
-    def test_each_one_exists_on_check(self, attribute, readme: str):
+    def test_each_one_exists_on_check(self, attribute, reference: str):
         result = Check(
             status=200, reason="OK", server="h:1", elapsed=0.0, headers={}
         )
@@ -547,11 +811,11 @@ class TestTheAttributesTheReadmePromises:
             "validate",
         ],
     )
-    def test_every_client_method_the_readme_shows_exists(self, method, readme: str):
+    def test_every_client_method_the_readme_shows_exists(self, method, corpus: str):
         from nodemaven import Client
 
         assert hasattr(Client, method)
-        assert f"client.{method}(" in readme or f"`{method}()`" in readme
+        assert f"client.{method}(" in corpus or f"`{method}()`" in corpus
 
 
 class TestTheEnvironmentVariableNames:

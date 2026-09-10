@@ -104,14 +104,29 @@ dropping it, which is what put ``norotate`` in this package.
 What is still not measured
 --------------------------
 
-* **The six write endpoints have never been called** - creating, updating,
-  deleting and resetting a sub-user, upserting a whitelist address, deleting
-  one - because each costs a real object on a production account. Their paths,
-  methods and body fields are the spec's, cross-checked against nothing.
-* **The page-number base.** ``sub-users/`` and ``whitelist/ips`` page by page
-  number rather than by row offset, and neither the spec nor any run says
-  whether the first page is 0 or 1. This module refuses to guess - see
-  :class:`Paging` and :meth:`Client.iterate`.
+**This section said two things until 2026-09-10 and both had been settled the
+day before, by probes whose findings are written into the method docstrings of
+this same file.** They are corrected here rather than deleted, because the
+failure is worth more than the correction: a module docstring is a summary of
+the module, it reads as the authoritative statement of what is known, and it
+was believed over the code it summarises. It shipped that way in 0.1.3.
+
+* It said **the six write endpoints have never been called**. ``--phase 11``
+  sent all five wrapped writes on 2026-09-09 against a ``probe_delete_me_``
+  sub-user and an RFC 5737 address, each removed in the same run - see
+  :meth:`Client.create_sub_user`, :meth:`Client.update_sub_user`,
+  :meth:`Client.reset_sub_user_usage`, :meth:`Client.delete_sub_user` and
+  :meth:`Client.upsert_whitelist_ip`, each of which carries what its own call
+  answered. Four of the five answer something the spec does not declare.
+* It said **the page-number base** was unknown and that this module refuses to
+  guess. ``--phase 9`` measured both on 2026-09-09, the refusal was taken out
+  the same day, and :attr:`Paging.first_cursor` has carried the answer ever
+  since - ``1`` for both page-numbered endpoints.
+
+What is genuinely unmeasured is narrower and is recorded where it belongs, on
+the call it applies to: whether ``name`` is required by
+``whitelist/ip/upsert``, and whether ``ip``, ``ports_count`` and ``protocol``
+alone are a complete body. Neither was varied in the run that measured the rest.
 
 Twenty-four paths are in the spec and this module wraps nineteen of them. Not
 wrapped, deliberately: ``locations/all-doc/``, ``notifications/``,
