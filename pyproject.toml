@@ -27,6 +27,21 @@ classifiers = [
 ]
 dependencies = ["tomli>=1.1.0; python_version < '3.11'"]
 
+[project.optional-dependencies]
+# `requests` is not used anywhere in this package and this extra does not change
+# that: `grep -rn "import requests" src/` finds nothing, `Proxy.requests()` is a
+# three-line dict of strings, and `check.connect()` writes its own CONNECT by
+# hand precisely so that no HTTP library is needed to read a status line.
+#
+# It exists so that the documented example is installable in one line. An
+# outside developer reported on 2026-09-10, against 0.1.3 from PyPI, that the
+# quickstart imported `requests` while `pip install nodemaven` does not install
+# it - reproduced the same day in a clean venv holding only `nodemaven==0.1.3`.
+# The alternative was making `requests` a hard dependency, which would have
+# broken the one property that separates this package from the vendor's own
+# client, for the benefit of one code block.
+requests = ["requests>=2.25"]
+
 [project.urls]
 # These render as the sidebar on the PyPI page, so every one of them has to answer
 # 200 to a logged-out visitor.
@@ -37,12 +52,13 @@ dependencies = ["tomli>=1.1.0; python_version < '3.11'"]
 # `gh api repos/nodemaven/nodemaven-python --jq .visibility` answered `public`
 # on 2026-09-08, so both links resolve for a logged-out reader and can stay.
 #
-# **They still will not appear on the package page that is up now.** PyPI bakes
-# this table into each uploaded distribution and never re-reads the repository,
-# so 0.1.2's sidebar is fixed whatever this file says - re-read on 2026-09-08,
-# it carries Homepage and Documentation and no Source. The links arrive with the
-# next release; the visibility flip on its own did nothing to them, which is the
-# whole reason this note is worth keeping.
+# PyPI bakes this table into each uploaded distribution and never re-reads the
+# repository, so a visibility flip cannot put a link on a page that is already
+# up: 0.1.2's sidebar carried Homepage and Documentation and no Source, re-read
+# on 2026-09-08, with both entries already sitting in this file since 0.1.1.
+# 0.1.3 shipped on 2026-09-09 and `Source` and `Issues` are on the project page,
+# so the rule is measured in both directions now - metadata travels with a
+# release and never with anything else.
 Homepage = "https://nodemaven.com"
 Documentation = "https://docs.nodemaven.com"
 Source = "https://github.com/nodemaven/nodemaven-python"

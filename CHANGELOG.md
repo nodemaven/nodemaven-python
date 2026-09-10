@@ -8,6 +8,95 @@ itself is built on: a change to what the gateway is believed to accept carries
 the probe that established it and the date it was run. "The vendor's documentation
 says so" is not one of those, and an entry that rests on it says so outright.
 
+## Unreleased
+
+**PyPI serves 0.1.3 and `__version__` in this tree is also `0.1.3`**, so the two
+are different libraries answering the same number. That is deliberate - bumping
+the version is step 1 of the release procedure and nothing here releases without
+an instruction - and it is written down because the last time it happened nobody
+wrote it down and two trees called themselves 0.1.1 for five days. Anything
+quoted about what `nodemaven` does has to say which tree it was read from until
+this is released.
+
+### `pip install nodemaven[requests]`
+
+The quickstart imported `requests` and `pip install nodemaven` did not install
+it. Reported on 2026-09-10 by an outside developer reading 0.1.3 from PyPI, and
+reproduced the same day in a clean venv holding only `nodemaven==0.1.3`:
+`import requests` after the documented install is a `ModuleNotFoundError`, which
+is the first thing that happens to anyone who copies the README.
+
+The fix is an optional extra, declared in `[project.optional-dependencies]`, and
+**`requests` is still not a dependency of this package** - `grep -rn "import
+requests" src/` finds nothing, and it will go on finding nothing.
+`Proxy.requests()` is a dict of strings and `check.connect()` writes its own
+CONNECT by hand, for the reason under 0.1.3 below: an HTTP library throws away
+the status line, the reason phrase and the headers, which on this gateway are
+the diagnosis. Making `requests` a hard dependency would have cost the one
+property that separates this package from the vendor's own client, to fix one
+code block.
+
+Two things worth keeping from how the fix was chosen. `pip install requirements`
+was considered and does not exist - `pypi.org/pypi/requirements/json` answers
+**404**, measured 2026-09-10, so that spelling breaks a step earlier with a less
+legible error - and `-r requirements.txt` names a file that an installer coming
+from PyPI never has. And **an undeclared extra is not an error**: pip answers
+`nodemaven[nosuchthing]` with a warning and installs the package without it, so
+the documented line would have gone on failing while the README looked fixed.
+That is why `test_readme.py` now reads `pyproject.toml` and asserts every extra
+the documentation names is declared.
+
+`test_every_third_party_import_is_named_in_an_install_line` is the general
+version: every `import` in every Python block in every document this suite
+checks has to be either the standard library, `nodemaven` itself, or named in a
+`pip install` line in the same file. It is what would have caught this before
+the release rather than after it.
+
+### The README was split, and nothing in it was deleted
+
+984 lines, over half of them reference and measurement, so a reader arriving
+from PyPI met the API reference before the second example. The measurements
+moved rather than shrank - the argument they make only works at full length, and
+summarising a measurement turns it into an opinion:
+
+- [`docs/api-reference.md`](https://github.com/nodemaven/nodemaven-python/blob/main/docs/api-reference.md)
+  - what every public name takes, returns and raises.
+- [`docs/validation.md`](https://github.com/nodemaven/nodemaven-python/blob/main/docs/validation.md)
+  - the five status codes a wrong value comes back as, the fold list, why a
+  separator is refused, why session ids are hexadecimal.
+- [`docs/observed-behavior.md`](https://github.com/nodemaven/nodemaven-python/blob/main/docs/observed-behavior.md)
+  - what the account API does that its own specification does not say.
+
+Every link out of the README is absolute and points at `blob/main`, because
+**PyPI resolves nothing relative**: a `](docs/validation.md)` resolves against
+`pypi.org/project/nodemaven/` and 404s there, which is a production link going
+nowhere. That rule was written in three HTML comments in the README and enforced
+by nobody; it is now two tests.
+
+**The split is the moment those tests were most likely to stop testing
+anything.** Every one of them scanned `README.md` by name, and content moving
+out from under a by-name scan is exactly the shape a test takes when it goes
+green for the wrong reason. So `test_readme.py` now names its corpus rather than
+globbing it - a new file under `docs/` fails the suite until somebody decides
+what checks it is owed - the per-file checks say which file they mean, and every
+scan asserts it found something first. Each new test was checked by breaking
+what it guards and confirming it fails: renaming the extra, removing the install
+line, making a link relative, deleting a `docs/` link, and renaming a
+` ```python ` fence to ` ```py `.
+
+### `api.py`'s module docstring was wrong, and shipped that way in 0.1.3
+
+Its "What is still not measured" block said the six write endpoints had never
+been called and that the page-number base was unknown. Both had been settled on
+2026-09-09, by `--phase 11` and `--phase 9`, whose findings are written into the
+method docstrings **of the same file** - `Paging.first_cursor` has carried the
+page base since, and `_refuse_unnumbered` was deleted with it.
+
+Corrected in place with the note, because the failure is worth more than the
+correction: a module docstring is a summary of the module and reads as the
+authoritative statement of what is known, so it was believed over the code it
+summarises. The check is `grep` in the source and it was not run.
+
 ## 0.1.3 - 2026-09-09 17:42
 
 Uploaded by `publish.yml` through PyPI Trusted Publishing, from the `v0.1.3`
