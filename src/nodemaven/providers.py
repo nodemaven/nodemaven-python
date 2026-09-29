@@ -113,6 +113,15 @@ class Provider:
         headers = tuple(self.exit_ip_headers)
         if not headers and self.exit_ip_header:
             headers = (self.exit_ip_header,)
+        # The loader refuses an empty name; a hand-built provider is held to the
+        # same rule. Found in review of the Rust port, where the builder had the
+        # same gap, and carried back here.
+        if any(not isinstance(name, str) or not name for name in headers):
+            raise ProviderError(
+                f"provider {self.id!r} names an exit_ip_header of {list(headers)!r}. "
+                f"Each has to be a non-empty header name; an empty one can never "
+                f"match."
+            )
         if headers and self.exit_ip_header not in (None, headers[0]):
             raise ProviderError(
                 f"provider {self.id!r} names its exit address header as "

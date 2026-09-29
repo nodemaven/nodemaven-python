@@ -346,6 +346,15 @@ exit_ip_header = {value}
                 exit_ip_header="X-B", exit_ip_headers=("X-A",),
             )
 
+    def test_a_hand_built_provider_refuses_an_empty_exit_header(self):
+        # The loader already refused this; the Rust builder did not, and review
+        # of the Rust port found it. Carried back so both SDKs agree.
+        with pytest.raises(ProviderError, match="non-empty header name"):
+            Provider(
+                id="p", label="P", known_params=frozenset(),
+                exit_ip_headers=("X-A", ""),
+            )
+
     def test_the_shipped_definition_reads_both_spellings(self):
         assert load("nodemaven").exit_ip_headers == ("X-Proxy-Exit-IP", "X-Exit-IP")
 
