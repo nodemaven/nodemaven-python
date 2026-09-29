@@ -176,9 +176,13 @@ of a collection the same way - see
 A `Provider` is a frozen description of one gateway: `id`, `label`,
 `known_params`, `status`, `prefix`, `separator`, `pair_separator`,
 `session_param`, `host`, `port`, `aliases`, `values`, `normalize`,
-`connect_reactions`, `exit_ip_header`, `source`, `source_read`, `notes`. Only
-`id`, `label` and `known_params` are required. `.is_measured` is `True` when
-`status` is `measured`.
+`connect_reactions`, `exit_ip_header`, `source`, `source_read`, `notes`,
+`exit_ip_headers`. Only `id`, `label` and `known_params` are required.
+`.is_measured` is `True` when `status` is `measured`.
+
+`exit_ip_headers` is every header name the exit address may arrive under, tried
+in order; `exit_ip_header` is the first of them. In a definition file the key is
+`exit_ip_header` and takes one name or a list.
 
 ## Your own transport
 

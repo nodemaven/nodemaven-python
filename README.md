@@ -35,7 +35,7 @@
      above the install command, and twelve bullets there push `pip install` off
      the first screen. A nav is the one list a reader is meant to scroll past. -->
 
-[Quickstart](#quickstart) · [Parameters](#parameters) · [Sticky sessions](#sticky-sessions) · [Errors](#errors) · [Account API](#account-api) · [Other gateways](#other-gateways) · [Documentation](#documentation)
+[Quickstart](#quickstart) · [Sending traffic](#sending-traffic-through-it) · [Parameters](#parameters) · [Sticky sessions](#sticky-sessions) · [Checking a proxy](#checking-a-proxy) · [Errors](#errors) · [Account API](#account-api) · [Other gateways](#other-gateways) · [Documentation](#documentation)
 
 </div>
 
@@ -88,37 +88,16 @@ print(proxy.check())
 ```
 
 <!-- 203.0.113.7 is RFC 5737 TEST-NET-3, reserved for documentation, so nobody
-     reads it as a real exit address. The two output blocks here are compared
-     against `str(Check(...))` by `test_readme.py`, word for word, after
-     collapsing whitespace - so re-wrapping the prose is allowed and changing it
-     is not. -->
+     reads it as a real exit address. This block and the 407 one under `Checking
+     a proxy` are compared against `str(Check(...))` by `test_readme.py`, word
+     for word, after collapsing whitespace - so re-wrapping the prose is allowed
+     and changing it is not. -->
 
-That is one CONNECT and no traffic through the tunnel. **A refusal is a return
-value, not an exception**, because the status code is the thing you came for and
-raising would bury it in a traceback:
+That is one CONNECT and no traffic through the tunnel. A refusal comes back as a
+return value rather than an exception, and a `407` there is as likely to be a
+parameter as a password - see [Checking a proxy](#checking-a-proxy).
 
-```
-407 Proxy Authentication Required via gate.nodemaven.com:8080 in 0.19s
-usually NOT your credentials, despite what the status says. A value the gateway
-will not take on `country`, `filter`, `ttl`, `type` or `speed` answers 407, and
-so does a wrong password. Check the values before the password - and check the
-case of `ttl`, which is the one value that is case-sensitive: `10M` is refused
-where `10m` is accepted.
-```
-
-That second paragraph is data in the gateway definition, not a string in this
-library, because what a status code means is per-gateway.
-
-`check()` tunnels to `api.ipify.org:443` by default and whatever you name will
-see a TCP connection from your exit address, so the target is a parameter rather
-than a constant. The timeout defaults to 15 seconds, because one of this
-gateway's measured reactions is no reply for about 20 seconds.
-
-```python
-proxy.check(target="example.com:443", timeout=15.0)
-```
-
-### Sending traffic through it
+## Sending traffic through it
 
 The example below uses `requests`, which this package does **not** install - it
 has no HTTP client of its own and does not want one. Install it alongside:
@@ -220,28 +199,22 @@ against the gateway rather than transcribed:
 | `region` | area inside the country | a name |
 | `city` | city inside the country | a name, with a `region` beside it |
 | `isp` | the exit's ISP | a name |
-| `type` | mobile or residential exits | `mobile`, `residential` |
+| `type` | which exit pool | `mobile`, `residential` |
 | `sid` | the sticky session - see below | any string with no `-` |
 | `ttl` | how long that session is held | `1m`, `10m`, `10h`, `24h` |
 | `filter` | IP quality | `low`, `medium`, `high` |
 | `speed` | claims a connection speed class | `fast`, `slow` |
 | `ipv4` | claims to force IPv4 | `True` |
 
-`type` picks a different pool rather than a filter over one pool. Five requests
-per arm with a fresh `sid` and `country=us`: `type=mobile` drew T-Mobile and
-Verizon Wireless ASNs, while `type=residential` and leaving it unset drew
-Comcast, Charter, Windstream and other wireline carriers, with no mobile ASN
-among them.
-
-**`ipv4` and `speed` are confirmed names whose effects are unmeasured**, and the
-table says `claims to` for that reason.
+`type` selects a different pool rather than filtering one, so `mobile` and
+`residential` draw from disjoint sets of carriers. **`ipv4` and `speed` are
+accepted by the gateway, but their effects have not been independently
+verified**, and the table says `claims to` for that reason.
 
 **Names are validated. Values, on this gateway, are not.** A name outside the
 table raises before anything is sent, because the gateway answers an unknown
-name with 200 and drops the setting. Values are passed through, because what is
-known is which ones have been *observed* to work, and that is not the same as
-the set the gateway accepts - refusing on a guessed list would block a setting
-that would have worked.
+name with 200 and drops the setting. A value is passed through and a wrong one
+comes back as a status code that names no parameter.
 
 `country`, `region`, `city`, `isp` and `type` are folded before they are sent -
 trimmed, lowered, and each remaining space turned into `_` - so `country="US"`
@@ -252,15 +225,15 @@ Proxy(login="u", password="p", region="District of Columbia").username
 # u-region-district_of_columbia
 ```
 
-`sid`, `filter`, `ttl` and `speed` keep their case, and for `ttl` that matters:
-`ttl-10m` opens the tunnel and `ttl-10M` is answered `407`. Every value that is
-not folded is refused if it contains whitespace.
+`sid`, `filter`, `ttl` and `speed` keep their case, and `ttl` is the one where
+that has been measured to matter: `10m` connects and `10M` is answered `407`.
+Every value that is not folded is refused if it contains whitespace.
 
 Credentials come from `NODEMAVEN_LOGIN` and `NODEMAVEN_PASSWORD` when not passed
 in, and the gateway address from `NODEMAVEN_HOST` and `NODEMAVEN_PORT`.
 
-Which names fold, why the values are not checked against a list, and what each
-wrong value is answered with, are in
+Which names fold, what each wrong value is answered with, and the probes behind
+the rows above, are in
 [docs/validation.md](https://github.com/nodemaven/nodemaven-python/blob/main/docs/validation.md).
 
 ## Sticky sessions
@@ -279,7 +252,7 @@ every order id beginning `order` would quietly share one session and one exit.
 **The session key is the whole parameter set, not the session id.** Adding or
 removing any parameter moves you to a different exit address, which is why
 parameters change through a method that returns a new object rather than by
-assignment - the move is a different identity, and the code should say so:
+assignment:
 
 ```python
 germany = proxy.replace(country="de")   # a new identity, a new exit
@@ -293,10 +266,39 @@ for identity in proxy.sessions(50):
     queue.put(identity)                 # each one a different exit
 ```
 
-Each id is `2 * length` hexadecimal characters from `secrets`, `length=6` by
-default, and the ids are distinct **within one call**. The measurements behind
-the separator rule, and why the ids are hex rather than `uuid4()`, are in
+`sessions(n)` draws cryptographically random ids, none of which can contain a
+separator. They are distinct **within one call**; two processes each calling
+it are relying on the size of the id space, not on a check. The measurements behind that rule are in
 [docs/validation.md](https://github.com/nodemaven/nodemaven-python/blob/main/docs/validation.md).
+
+## Checking a proxy
+
+`proxy.check()` opens one CONNECT and returns what the gateway said about it.
+**A refusal is a return value, not an exception**, because the status code is
+the thing you came for and raising would bury it in a traceback:
+
+```
+407 Proxy Authentication Required via gate.nodemaven.com:8080 in 0.19s
+usually NOT your credentials, despite what the status says. A value the gateway
+will not take on `country`, `filter`, `ttl`, `type` or `speed` answers 407, and
+so does a wrong password. Check the values before the password - and check the
+case of `ttl`, which is the one value that is case-sensitive: `10M` is refused
+where `10m` is accepted.
+```
+
+That second paragraph is data in the gateway definition, not a string in this
+library, because what a status code means is per-gateway.
+
+`check()` tunnels to `api.ipify.org:443` by default and whatever you name will
+see a TCP connection from your exit address, so the target is a parameter rather
+than a constant. The timeout defaults to 15 seconds, because one of this
+gateway's measured reactions is no reply for about 20 seconds.
+
+```python
+proxy.check(target="example.com:443", timeout=15.0)
+```
+
+`CheckError` is raised only when there was no answer at all - see below.
 
 ## Errors
 

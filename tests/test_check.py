@@ -121,14 +121,52 @@ class TestWhatTheGatewaySaid:
         assert result.elapsed >= 0.0
 
     def test_the_reason_phrase_is_kept_verbatim(self, gateway):
-        # Measured 2026-08-13: on the shipped gateway a 200 carrying the exit
-        # header arrives as `Connection established`, while the ones arriving as
-        # `OK` or `Connection Established` do not carry it. The phrase labels
-        # which back end answered, so normalising it - even just its case -
-        # destroys the only key any per-implementation figure can be split on.
+        # On the shipped gateway the phrase labels which back end answered:
+        # `Connection established` carries `X-Proxy-Exit-IP`, and `OK` carries
+        # `X-Exit-IP` (2026-09-10; the 2026-08-13 reading that `OK` carries no
+        # address came from looking for one name). Normalising the phrase - even
+        # just its case - destroys the only key a per-implementation figure can
+        # be split on.
         server = gateway("HTTP/1.1 200 Connection Established\r\n\r\n")
         result = connect(server.address, "acct", "pw")
         assert result.reason == "Connection Established"
+        assert result.exit_ip is None
+
+    def test_the_second_name_is_read_when_the_first_is_absent(self, gateway):
+        # The `OK` back end's spelling, measured 2026-09-10. With one name this
+        # reply came back with no exit address although it carried one.
+        server = gateway(
+            "HTTP/1.1 200 OK\r\n"
+            "X-Exit-IP: 203.0.113.9\r\n"
+            "X-Exit-Country: US\r\n"
+            "\r\n"
+        )
+        result = connect(
+            server.address, "acct", "pw",
+            exit_ip_header=["X-Proxy-Exit-IP", "X-Exit-IP"],
+        )
+        assert result.exit_ip == "203.0.113.9"
+
+    def test_the_first_name_present_wins(self, gateway):
+        server = gateway(
+            "HTTP/1.1 200 Connection established\r\n"
+            "X-Exit-IP: 203.0.113.9\r\n"
+            "X-Proxy-Exit-IP: 203.0.113.7\r\n"
+            "\r\n"
+        )
+        result = connect(
+            server.address, "acct", "pw",
+            exit_ip_header=["X-Proxy-Exit-IP", "X-Exit-IP"],
+        )
+        assert result.exit_ip == "203.0.113.7"
+
+    def test_none_of_the_names_present_is_still_normal(self, gateway):
+        server = gateway("HTTP/1.1 200 Connection Established\r\n\r\n")
+        result = connect(
+            server.address, "acct", "pw",
+            exit_ip_header=["X-Proxy-Exit-IP", "X-Exit-IP"],
+        )
+        assert result.ok
         assert result.exit_ip is None
 
     def test_a_missing_exit_header_is_normal_and_not_an_error(self, gateway):
@@ -713,6 +751,15 @@ class TestProxyCheckWiresTheProviderIn:
         result = proxy.check(timeout=5.0)
         assert result.exit_ip == "203.0.113.7"
 
+    def test_check_reads_every_name_the_provider_declares(self, gateway):
+        # The shipped definition lists both spellings, so `Proxy.check` has to
+        # hand the whole list down and not only the first entry.
+        server = gateway("HTTP/1.1 200 OK\r\nX-Exit-IP: 203.0.113.9\r\n\r\n")
+        host, _, port = server.address.rpartition(":")
+        proxy = Proxy(login="acct", password="pw", host=host, port=int(port))
+        result = proxy.check(timeout=5.0)
+        assert result.exit_ip == "203.0.113.9"
+
     def test_check_sends_the_built_username_and_not_the_bare_login(self, gateway):
         server = gateway(ESTABLISHED)
         host, _, port = server.address.rpartition(":")
@@ -802,3 +849,50 @@ class TestSessions:
         # 2**48 identities and no call anyone writes comes near it.
         proxy = Proxy(login="acct", password="pw")
         assert len(proxy.sessions(64)) == 64
+
+    @staticmethod
+    def _separated_by(char):
+        from nodemaven import Provider
+
+        return Provider(
+            id="p", label="P", known_params=frozenset({"sid"}),
+            session_param="sid", separator=char, pair_separator=char,
+        )
+
+    def test_a_separator_that_is_a_hex_digit_is_never_drawn(self):
+        # Found 2026-09-29 in review of the Rust port: an id containing the
+        # separator was handed to `session()`, which refused it, so `sessions()`
+        # failed at random on such a definition.
+        proxy = Proxy(
+            login="acct", password="pw", host="gate.example", port=8080,
+            provider=self._separated_by("a"),
+        )
+        batch = proxy.sessions(200)
+        assert len(batch) == 200
+        assert all("a" not in p.params["sid"] for p in batch)
+
+    def test_a_space_the_separator_shrinks_below_the_count_is_refused(self):
+        # Length 1 with separator "0" leaves 225 usable ids of 256: 255 passes
+        # the size bound and could never finish without the draw cap.
+        proxy = Proxy(
+            login="acct", password="pw", host="gate.example", port=8080,
+            provider=self._separated_by("0"),
+        )
+        with pytest.raises(ParamError, match="Raise length"):
+            proxy.sessions(255, length=1)
+
+    def test_a_long_id_with_a_hex_digit_separator_is_still_drawn(self):
+        # Found in review: skipping whole ids that carried the separator made
+        # long ids all but impossible - (15/16)**200 for length=100 - and the
+        # draw cap refused a valid call. The alphabet now excludes the separator.
+        proxy = Proxy(
+            login="acct", password="pw", host="gate.example", port=8080,
+            provider=self._separated_by("0"),
+        )
+        batch = proxy.sessions(3, length=100)
+        assert all(len(p.params["sid"]) == 200 for p in batch)
+        assert all("0" not in p.params["sid"] for p in batch)
+
+    def test_an_existing_session_id_is_replaced(self):
+        proxy = Proxy(login="acct", password="pw", sid="seed")
+        assert all(p.params["sid"] != "seed" for p in proxy.sessions(5))

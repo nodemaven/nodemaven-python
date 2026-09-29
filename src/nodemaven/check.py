@@ -31,7 +31,7 @@ import base64
 import socket
 import time
 from dataclasses import dataclass
-from typing import Dict, Mapping, Optional
+from typing import Dict, Mapping, Optional, Sequence, Union
 
 from .errors import CheckError
 
@@ -71,6 +71,23 @@ class Check:
     #: the ones that arrive as ``OK`` or ``Connection Established`` do not carry
     #: it. Any per-implementation number has to be split on this rather than
     #: pooled, so it is preserved byte for byte.
+    #:
+    #: **The second half of that is wrong and is corrected here rather than
+    #: deleted, because the mistake is the useful part.** Measured 2026-09-10 by
+    #: ``lab/probes/probe_competitor_dialects.py``, which prints the names of
+    #: every header received: two rounds of one identical arm answered
+    #: ``200 'OK'`` with ``x-exit-asn, x-exit-country, x-exit-ip,
+    #: x-exit-timezone`` and ``200 'Connection established'`` with
+    #: ``x-proxy-exit-ip``. So the ``OK`` back end does send an exit address, and
+    #: sends three more fields besides. What it does not send is the *one header
+    #: name* the 2026-08-13 instrument looked for.
+    #:
+    #: What the mistake looked like from the inside: the probe was given a single
+    #: ``exit_ip_header`` to find, found nothing, and the absence was written down
+    #: as a property of the gateway instead of a property of the search. An
+    #: instrument that knows one name can only ever report on that name. The
+    #: split by reason phrase survives - the two back ends really are different -
+    #: but "``OK`` does not carry an exit address" was never measured.
     reason: str
     #: ``host:port`` of the gateway, with no credentials in it.
     server: str
@@ -80,9 +97,17 @@ class Check:
     elapsed: float
     #: The response headers, lower-cased keys, in the order they arrived.
     headers: Dict[str, str]
-    #: The exit address, when the gateway sent one on the header its provider
-    #: definition declares. ``None`` is normal rather than an error - on the
-    #: shipped gateway only one of at least three back ends sends it.
+    #: The exit address, from the first of the provider definition's
+    #: ``exit_ip_header`` names that the reply carried. ``None`` is normal rather
+    #: than an error: in the 2026-09-08 sample one 200 in eight carried no
+    #: address under any name.
+    #:
+    #: Until 2026-09-29 the definition could name one header, and the shipped
+    #: gateway's back ends use two - ``X-Proxy-Exit-IP`` and, on the ``OK`` back
+    #: end, ``X-Exit-IP`` - so a ``None`` here often meant the address had
+    #: arrived under the other name. Both are read now. A ``None`` still means
+    #: only that none of the declared names was present; read :attr:`headers`
+    #: before concluding the reply carried no address.
     exit_ip: Optional[str] = None
     #: What this status means on this gateway, from the provider definition, or
     #: ``None`` if that gateway has no entry for it. This is where a 407 gets
@@ -117,7 +142,7 @@ def connect(
     *,
     target: str = DEFAULT_TARGET,
     timeout: float = 15.0,
-    exit_ip_header: Optional[str] = None,
+    exit_ip_header: Union[None, str, Sequence[str]] = None,
     reactions: Optional[Mapping[str, str]] = None,
 ) -> Check:
     """Open one CONNECT through ``server`` and report what came back.
@@ -190,7 +215,13 @@ def connect(
     elapsed = time.monotonic() - started
 
     status, reason, headers = _parse_head(head, server)
-    exit_ip = headers.get(_ascii_lower(exit_ip_header)) if exit_ip_header else None
+    # One name or several, tried in order, first present wins. Several since
+    # 2026-09-29: this gateway's back ends spell the header two ways, and with
+    # one name `exit_ip` came back None on replies that carried an address.
+    names = (exit_ip_header,) if isinstance(exit_ip_header, str) else (exit_ip_header or ())
+    exit_ip = next(
+        (headers[key] for key in map(_ascii_lower, names) if key in headers), None
+    )
     return Check(
         status=status,
         reason=reason,

@@ -21,17 +21,25 @@ port = 8080
 
 # Returned on the CONNECT reply, so an exit address costs one handshake and no
 # target traffic. Not guaranteed: more than one implementation answers on this
-# name, and only some of them send it, so handle its absence rather than
-# treating the first miss as an error.
+# gateway and they spell the header differently, so the key is a list, read in
+# order, and the first name present wins. A reply carrying none of them is
+# normal and not an error.
 #
-# One name and more than one spelling of it, which this key cannot express. A
-# 200 read on 2026-09-08 carried `X-Exit-IP` beside `X-Exit-Country`,
-# `X-Exit-Timezone` and `X-Exit-ASN`, and no `X-Proxy-Exit-IP` at all, so an SDK
-# reading only the name below gets no address from that back end. Which back end
-# answers is decided by the username and cannot be asked for, so the name set is
-# sampled rather than looked up: `lab\probes\probe_gateway_parameter_case.py`,
-# phase 0. Widening this to a list is a schema change and waits for that sample.
-exit_ip_header = "X-Proxy-Exit-IP"
+# Which back end answers is decided by the username and cannot be asked for, so
+# the name set is sampled rather than looked up. What the sample holds:
+#
+#   2026-09-08, `lab\probes\probe_gateway_parameter_case.py`, eight 200 replies:
+#     `X-Proxy-Exit-IP` in five, `X-Exit-IP` in two, no address in one.
+#   2026-09-10, `lab\probes\probe_competitor_dialects.py`, two rounds of one arm:
+#     `200 'Connection established'` carried `X-Proxy-Exit-IP` alone;
+#     `200 'OK'` carried `X-Exit-IP` beside `X-Exit-Country`, `X-Exit-Timezone`
+#     and `X-Exit-ASN`.
+#
+# A third reason phrase, `Connection Established`, has been seen and its header
+# set has not. A string is still accepted here for one name; a list became
+# legal on 2026-09-29, before which one name was all this key could say and
+# `Check.exit_ip` came back empty on replies that did carry an address.
+exit_ip_header = ["X-Proxy-Exit-IP", "X-Exit-IP"]
 
 # Confirmed to be recognised. Anything outside this set is refused before a
 # request exists, because the gateway answers an unknown name with 200 and the

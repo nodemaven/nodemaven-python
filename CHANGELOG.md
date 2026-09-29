@@ -8,6 +8,129 @@ itself is built on: a change to what the gateway is believed to accept carries
 the probe that established it and the date it was run. "The vendor's documentation
 says so" is not one of those, and an entry that rests on it says so outright.
 
+## Unreleased
+
+### Three rules tightened while porting the API client to Rust
+
+Found by review of the Rust port, which had copied them from here, and fixed in
+both SDKs the same day with cases in the shared specification.
+
+- **An empty `2xx` is an answer only to a `DELETE`.** Every other call is
+  answered with JSON, so an empty body on a `GET` became `{}` or an empty page
+  and read as "nothing there". It is an `ApiError` now.
+- **In the sub-user write calls, `success: false` in a `2xx` is an error
+  whether or not a `payload` is present.** Those are the calls that unwrap the
+  `{success, payload}` envelope - create, update, delete, usage reset - and the
+  check used to sit behind the one for `payload`. Other calls do not read the
+  flag.
+- **`sessions()` never draws the provider's separator.** A definition
+  separating on a hexadecimal digit handed ids containing it to `session()`,
+  which refused them, so `sessions()` failed at random. Ids are now drawn from
+  the hex digits minus any one-character separator, and a request larger than
+  that smaller id space is refused before anything is drawn. Skipping whole ids
+  instead was tried first and does not scale: with separator `0`, a 200-character
+  id avoids it with probability about 2.5e-6.
+
+### The API key no longer follows a redirect to another host
+
+The default transport followed redirects, and `urllib` copies every header onto
+the redirected request - `Authorization` included. Measured 2026-09-29 on two
+loopback servers: a `302` from the first delivered `x-api-key <key>` to the
+second, and the second's body came back from `me()` as the account. Redirects
+are no longer followed; a `3xx` is an `ApiError` carrying its status. Nothing
+here says the dashboard has ever redirected an API call - this is the guard
+for a key that must only ever reach one host.
+
+Found while porting the API client to the Rust SDK, whose transport was written
+to follow no redirect from the start.
+
+### A write that reached the dashboard's web page no longer reports success
+
+`create_sub_user`, `update_sub_user`, `delete_sub_user`, `reset_sub_user_usage`
+and `delete_whitelist_ip` returned the response body as their result whatever it
+was. `dashboard.nodemaven.com` answers a path it does not serve with `200` and
+its web front end - 6415 bytes of HTML, measured 2026-09-09 - so any of the five
+sent to a wrong path returned that HTML as though the call had worked. A delete
+that did not happen read as a delete that did.
+
+Every call now raises `ApiError` on a `2xx` whose body is not JSON. An empty
+`2xx`, which is a real answer to a DELETE, still returns `{}`. The read methods
+already refused the page, because they checked the shape of what came back; the
+check now happens once, for all of them, before any shape is looked at.
+
+The paths these methods use were all measured on 2026-09-09 and are correct, so
+this did not misfire against the live API. It is the guard for the day a path
+or the server changes, which on this host is otherwise indistinguishable from
+success.
+
+Found on 2026-09-29 by running the shared SDK specification's cases against this
+package - the first defect that specification caught.
+
+### A timeout is an `ApiError`, and `isp_cities()` asks for pages that fit
+
+A read timeout reached callers as a bare `TimeoutError`, past
+`except NodeMavenError`, because the default transport caught only
+`urllib.error.URLError` and that covers the connect but not the read. Every
+`OSError` a transport raises - the default one or a caller's, and `requests`'
+exceptions are `OSError`s too - is now an `ApiError` saying no status came back,
+and a truncated or malformed response (`http.client.HTTPException`, which is not
+an `OSError`) is one as well.
+
+It was found live. `isp_cities()` asked for the shared default of 1000 rows, and
+this endpoint's time grows with the page: measured 2026-09-29 with
+`country__code="us"`, 10 rows in 2.3 s, 100 in 8.3 s, 1000 in 56.0 s. At 1000 it
+timed out at 60 s in three runs, on 2026-09-09 and twice on 2026-09-29, so with
+the client's 30-second default `isp_cities()` with no arguments could not
+succeed. It now asks for 100 (`ISP_CITIES_PAGING`) and `iterate()` walks the
+rest; `limit=` still overrides it. One sample per size, from one connection.
+
+### `AuthError` no longer blames an expired key
+
+The message said the key is a JWT and "an expired one is refused exactly like a
+wrong one". Measured 2026-09-29: a key whose `exp` had passed twenty days earlier
+was accepted on every call, reads and all five writes. The server does not
+enforce `exp`, so the sentence sent readers after a clock nothing looks at.
+
+### Docstrings brought up to the 2026-09-29 run
+
+`lab/probes/smoke_client_live.py` called every method through `Client`, which
+the 2026-09-09 probe had not done for the writes. Three docstrings changed as a
+result: `reset_sub_user_usage()` returns the reset sub-users' full rows, **proxy
+passwords included**; `whitelist_ip()` returns exactly the document's eighteen
+`WhitelistIP` fields; and `domain_statistics()` rows are three-element arrays,
+not the objects the document declares - which position is which is not yet
+measured, so nothing names them.
+
+### `check()` reads the exit address under both of the gateway's spellings
+
+`exit_ip_header` in a provider definition takes a list of header names as well
+as one name, tried in order, and the shipped definition lists
+`["X-Proxy-Exit-IP", "X-Exit-IP"]`. Until now it named `X-Proxy-Exit-IP` alone,
+and the gateway's `OK` back end sends the address as `X-Exit-IP`, so `exit_ip`
+came back `None` on replies that carried one. In the 2026-09-08 sample of eight
+`200` replies that was two of the three `None`s; the third carried no address
+under any name. The pairing of `X-Exit-IP` with the `OK` reason phrase is from
+two rounds on 2026-09-10.
+
+Compatible in both directions: a definition with one name loads as before,
+`Provider.exit_ip_header` is still there and is the first name, and the new
+`Provider.exit_ip_headers` holds all of them. `connect(exit_ip_header=...)`
+takes a name or a list. A definition giving an empty name or an empty list is
+refused at load, since it reads as "this gateway reports its exit address" and
+can never find it.
+
+### Stale comments in `api.py`
+
+Three places described a state the same file had already moved past, and all
+three shipped in 0.1.4:
+
+- the catalogue comment gave the pre-2026-09-08 reaction table - any `city` 500,
+  a bad `isp` 410 - and called the cause of the 500 unknown;
+- the sub-user comment said none of the five writes had ever been called, above
+  docstrings recording each call from 2026-09-09;
+- four grouping methods said "Spec shape, never called", and all four were
+  called through these methods on 2026-09-09 by the probe's `--phase 10`.
+
 ## 0.1.4 - 2026-09-10
 
 A patch release, and it exists because **the fix does not reach anyone without

@@ -225,8 +225,24 @@ class TestTheCatalogue:
         # visible ever, which is why these are sent rather than left out.
         api, fake = client((200, {"count": 0, "results": []}))
         getattr(api, method)()
-        assert f"limit={DEFAULT_PAGE_SIZE}" in fake.url
-        assert "offset=0" in fake.url
+        size = 100 if method == "isp_cities" else DEFAULT_PAGE_SIZE
+        query = parse_qs(urlsplit(fake.url).query)
+        assert query["limit"] == [str(size)]
+        assert query["offset"] == ["0"]
+
+    def test_isp_cities_asks_for_pages_that_fit_the_timeout(self):
+        # Measured 2026-09-29: 10 rows in 2.3 s, 100 in 8.3 s, 1000 in 56.0 s,
+        # and the 1000-row default timed out at 60 s in three runs. With the
+        # shared default this call could not succeed under a 30 s timeout.
+        #
+        # Parsed, not matched as a substring: `limit=100` is a substring of
+        # `limit=1000`, so the first version of this test passed with the old
+        # default too - the trap the test below records, walked into again.
+        api, fake = client((200, {"cities": []}))
+        api.isp_cities(country__code="us")
+        assert parse_qs(urlsplit(fake.url).query)["limit"] == ["100"]
+        api.isp_cities(country__code="us", limit=1000)
+        assert parse_qs(urlsplit(fake.url).query)["limit"] == ["1000"]
 
     def test_a_callers_limit_and_offset_win_over_the_defaults(self):
         # Parsed rather than matched as a substring: `limit=50` is a substring
@@ -484,13 +500,206 @@ class TestTheServersOwnMessageSurvives:
             api.me()
 
 
-class TestSubUsers:
-    """Five write calls and one read, none of which has ever been sent.
+class TestAnHtmlPageIsNotAnAnswer:
+    """A 2xx carrying the dashboard's front end is refused on every call.
 
-    Each one costs a real object on a production account, so every shape below
-    is the vendor's OpenAPI document of 2026-09-09 and nothing more. What these
-    cases pin is that this package sends what that document describes - not that
-    the document is right, which is a separate claim and an unmeasured one.
+    ``dashboard.nodemaven.com`` answers a path it does not serve with 200 and
+    6415 bytes of HTML, measured 2026-09-09. Until 2026-09-29 the write methods
+    handed that page back as their result, so a DELETE to a wrong path reported a
+    delete that never happened. Found by running the shared SDK specification's
+    cases (``sdk-spec/cases/api.json``) against this package; the reads were
+    already refusing it, by accident of checking the shape afterwards.
+    """
+
+    PAGE = b"<!doctype html><html><body><div id=\"root\"></div></body></html>"
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda api: api.me(),
+            lambda api: api.countries(),
+            lambda api: api.whitelist_ip("1"),
+            lambda api: api.create_sub_user("kid", "pw"),
+            lambda api: api.update_sub_user("9", traffic_limit=1),
+            lambda api: api.delete_sub_user("9"),
+            lambda api: api.reset_sub_user_usage(["9"]),
+            lambda api: api.upsert_whitelist_ip("192.0.2.8", 1),
+            lambda api: api.delete_whitelist_ip("1"),
+        ],
+        ids=[
+            "me", "countries", "whitelist_ip", "create_sub_user", "update_sub_user",
+            "delete_sub_user", "reset_sub_user_usage", "upsert_whitelist_ip",
+            "delete_whitelist_ip",
+        ],
+    )
+    def test_every_call_refuses_it(self, call):
+        api, _ = client((200, self.PAGE))
+        with pytest.raises(ApiError, match="bytes of HTML where JSON was expected"):
+            call(api)
+
+    def test_an_empty_2xx_is_still_an_answer(self):
+        # The control for the case above: 204 and an empty 200 are real answers
+        # to a DELETE, and refusing them would break every delete that works.
+        api, _ = client((204, b""))
+        assert api.delete_sub_user("9") == {}
+
+    def test_an_empty_2xx_to_anything_but_a_delete_is_refused(self):
+        # Narrowed 2026-09-29 in review of the Rust port: every call but a
+        # DELETE is answered with JSON, so an empty GET used to become `{}` or
+        # an empty page and read as "nothing there".
+        api, _ = client((200, b""))
+        with pytest.raises(ApiError, match="empty body"):
+            api.me()
+        with pytest.raises(ApiError, match="empty body"):
+            api.countries()
+
+    def test_success_false_without_a_payload_is_refused(self):
+        api, _ = client((200, {"success": False, "description": "no"}))
+        with pytest.raises(ApiError, match="success=false"):
+            api.delete_sub_user("9")
+
+    def test_the_message_does_not_carry_the_page(self):
+        api, _ = client((200, self.PAGE))
+        with pytest.raises(ApiError) as caught:
+            api.delete_sub_user("9")
+        assert "doctype" not in str(caught.value)
+
+
+class TestNoAnswerStaysInsideThisPackagesErrors:
+    """A timeout or a dropped connection is an ``ApiError``, not a socket error.
+
+    Until 2026-09-29 a read timeout reached the caller as a bare
+    ``TimeoutError``, past ``except NodeMavenError``. Measured live on
+    ``isp_cities()``, whose 1000-row page takes about 56 s.
+    """
+
+    @staticmethod
+    def _serve_once(reply):
+        """A loopback server that accepts one connection and sends ``reply``,
+        or nothing at all when ``reply`` is None, then holds or closes."""
+        import socket
+        import threading
+
+        server = socket.socket()
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        held = []
+
+        def run():
+            conn, _ = server.accept()
+            held.append(conn)
+            if reply is not None:
+                conn.recv(65536)
+                conn.sendall(reply)
+                conn.close()
+
+        threading.Thread(target=run, daemon=True).start()
+        return f"http://127.0.0.1:{server.getsockname()[1]}", server, held
+
+    def test_a_read_timeout_on_the_default_transport(self):
+        base, server, held = self._serve_once(None)
+        try:
+            api = Client("k", base_url=base, timeout=0.5)
+            with pytest.raises(ApiError, match="before the timeout of 0.5 s"):
+                api.me()
+        finally:
+            for conn in held:
+                conn.close()
+            server.close()
+
+    def test_a_truncated_body_on_the_default_transport(self):
+        base, server, _ = self._serve_once(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nshort"
+        )
+        try:
+            with pytest.raises(ApiError, match="not a complete HTTP response"):
+                Client("k", base_url=base, timeout=5.0).me()
+        finally:
+            server.close()
+
+    def test_a_truncated_error_body_on_the_default_transport(self):
+        # The error body is read inside the HTTPError handler, where the sibling
+        # HTTPException clause cannot see what it raises. Found in review.
+        base, server, _ = self._serve_once(
+            b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 100\r\n\r\nshort"
+        )
+        try:
+            with pytest.raises(ApiError, match="not a complete HTTP response"):
+                Client("k", base_url=base, timeout=5.0).me()
+        finally:
+            server.close()
+
+    def test_a_redirect_is_not_followed_so_the_key_stays_home(self):
+        # Measured 2026-09-29 before this fix: a 302 to a second loopback server
+        # delivered `x-api-key <key>` to it, and its body came back as the
+        # account. Found while porting the client to Rust, whose transport was
+        # written to follow no redirect.
+        import time
+
+        other, other_server, other_seen = self._serve_recording(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\n{\"data\": 777}"
+        )
+        base, server, _ = self._serve_once(
+            f"HTTP/1.1 302 Found\r\nLocation: {other}/steal\r\n"
+            f"Content-Length: 0\r\n\r\n".encode()
+        )
+        try:
+            with pytest.raises(ApiError) as caught:
+                Client("SECRET-KEY", base_url=base, timeout=5.0).me()
+            assert caught.value.status == 302
+            time.sleep(0.2)
+            assert other_seen == [], "the redirect target was contacted"
+        finally:
+            server.close()
+            other_server.close()
+
+    @staticmethod
+    def _serve_recording(reply):
+        """Like ``_serve_once``, but records every request head it receives."""
+        import socket
+        import threading
+
+        server = socket.socket()
+        server.bind(("127.0.0.1", 0))
+        server.listen(4)
+        seen = []
+
+        def run():
+            while True:
+                try:
+                    conn, _ = server.accept()
+                except OSError:
+                    return
+                seen.append(conn.recv(65536))
+                conn.sendall(reply)
+                conn.close()
+
+        threading.Thread(target=run, daemon=True).start()
+        return f"http://127.0.0.1:{server.getsockname()[1]}", server, seen
+
+    @pytest.mark.parametrize(
+        "raised, words",
+        [
+            (TimeoutError("timed out"), "before the timeout."),
+            (ConnectionResetError("reset"), "failed mid-request: ConnectionResetError"),
+        ],
+    )
+    def test_a_callers_own_transport_is_covered_too(self, raised, words):
+        def transport(method, url, headers, body):
+            raise raised
+
+        with pytest.raises(ApiError, match=words):
+            Client("k", transport=transport).me()
+
+
+class TestSubUsers:
+    """Five write calls and one read.
+
+    All five endpoints were sent live on 2026-09-09 by
+    ``lab/probes/probe_account_api.py --phase 11``, which built its own requests
+    rather than calling these methods. So the shapes below are the ones that
+    run measured, and what these cases pin is that this package sends the same
+    thing. This docstring said until 2026-09-29 that none of them had been sent.
 
     The bodies here were ``username``/``password`` against
     ``sub-users/{id}/`` until that document was read. Both were wrong, and the
