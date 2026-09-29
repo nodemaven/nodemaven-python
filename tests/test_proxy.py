@@ -304,6 +304,51 @@ known_params = ["country"]
 connect_reactions = ["407 is a refusal"]
 """)
 
+    def test_one_exit_header_name_still_loads(self, tmp_path):
+        provider = self._provider(tmp_path, """
+label = "P"
+known_params = ["country"]
+exit_ip_header = "X-Proxy-Exit-IP"
+""")
+        assert provider.exit_ip_headers == ("X-Proxy-Exit-IP",)
+        assert provider.exit_ip_header == "X-Proxy-Exit-IP"
+
+    def test_several_exit_header_names_load_in_order(self, tmp_path):
+        provider = self._provider(tmp_path, """
+label = "P"
+known_params = ["country"]
+exit_ip_header = ["X-Proxy-Exit-IP", "X-Exit-IP"]
+""")
+        assert provider.exit_ip_headers == ("X-Proxy-Exit-IP", "X-Exit-IP")
+        assert provider.exit_ip_header == "X-Proxy-Exit-IP"
+
+    @pytest.mark.parametrize("value", ['[]', '""', '["X-Exit-IP", ""]', '[1]', '7'])
+    def test_an_exit_header_that_can_never_match_is_refused_at_load(
+        self, tmp_path, value
+    ):
+        with pytest.raises(ProviderError, match="exit_ip_header"):
+            self._provider(tmp_path, f"""
+label = "P"
+known_params = ["country"]
+exit_ip_header = {value}
+""")
+
+    def test_a_hand_built_provider_may_set_either_exit_header_field(self):
+        one = Provider(id="p", label="P", known_params=frozenset(), exit_ip_header="X-A")
+        assert one.exit_ip_headers == ("X-A",)
+        many = Provider(
+            id="p", label="P", known_params=frozenset(), exit_ip_headers=("X-A", "X-B")
+        )
+        assert many.exit_ip_header == "X-A"
+        with pytest.raises(ProviderError, match="make them agree"):
+            Provider(
+                id="p", label="P", known_params=frozenset(),
+                exit_ip_header="X-B", exit_ip_headers=("X-A",),
+            )
+
+    def test_the_shipped_definition_reads_both_spellings(self):
+        assert load("nodemaven").exit_ip_headers == ("X-Proxy-Exit-IP", "X-Exit-IP")
+
     def test_a_port_outside_the_range_is_refused_at_load(self, tmp_path):
         # Found by review 2026-09-09. `int(port)` accepted this and `Proxy`
         # then built `host:70000`, because taking the provider's port as a

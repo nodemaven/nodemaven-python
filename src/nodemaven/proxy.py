@@ -407,7 +407,7 @@ class Proxy:
             self._password,
             target=target,
             timeout=timeout,
-            exit_ip_header=self._provider.exit_ip_header,
+            exit_ip_header=self._provider.exit_ip_headers,
             reactions=self._provider.connect_reactions,
         )
 

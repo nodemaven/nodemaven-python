@@ -25,17 +25,17 @@ two disagree, which happens often, the run is what this package is built on.
 
 ## The exit address is not promised
 
-The exit address arrives **on the CONNECT reply itself**, on a header the
-gateway definition names, so knowing where you came out costs one handshake and
-no traffic through the tunnel.
+The exit address arrives **on the CONNECT reply itself**, on one of the headers
+the gateway definition names, so knowing where you came out costs one handshake
+and no traffic through the tunnel.
 
 **Do not build anything on it being there.** More than one implementation
 answers behind this hostname, which one you reach is decided by your username,
-and they do not agree about the header: one measured `200` carried `X-Exit-IP`
-where the shipped definition names `X-Proxy-Exit-IP`, and others send no address
-at all. So `result.exit_ip` is `None` more often than the definition suggests,
-and that is normal rather than an error. If you need the address every time,
-read it through the tunnel from a service that echoes it.
+and they do not agree about the header: some send `X-Proxy-Exit-IP`, some send
+`X-Exit-IP`, and some send no address at all. The shipped definition reads both
+names, in that order, and `result.exit_ip` is `None` when neither arrived - which
+is normal rather than an error. If you need the address every time, read it
+through the tunnel from a service that echoes it.
 
 **`ok` does not mean your parameters were applied.** An unrecognised parameter
 name is answered `200` and dropped, which is why unknown names are refused

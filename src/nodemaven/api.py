@@ -139,6 +139,7 @@ silently, so the omission is a decision somebody can disagree with.
 from __future__ import annotations
 
 import functools
+import http.client
 import json
 import os
 import urllib.error
@@ -158,6 +159,7 @@ __all__ = [
     "API_ROOT",
     "DEFAULT_PAGE_SIZE",
     "BY_OFFSET",
+    "ISP_CITIES_PAGING",
     "BY_PAGE_NUMBER",
     "WHITELIST_PAGING",
 ]
@@ -301,6 +303,18 @@ BY_OFFSET = Paging(
     first_cursor=0,
 )
 
+#: ``locations/isps/cities/`` only: the same convention with a page of 100.
+#:
+#: **This endpoint's time grows with the page size, and 1000 rows does not fit
+#: in the client's default 30-second timeout.** Measured 2026-09-29 by
+#: ``lab/probes/smoke_client_live.py --isp-cities``, one request per size with
+#: ``country__code="us"``: 10 rows in 2.3 s, 100 in 8.3 s, 1000 in 56.0 s. At the
+#: shared default of 1000 it timed out at 60 s in three runs, on 2026-09-09 and
+#: twice on 2026-09-29, so ``isp_cities()`` with no arguments could not succeed.
+#: 100 is the measured size with the widest margin below 30 s; :meth:`Client.iterate`
+#: walks the rest. One sample per size, from one connection.
+ISP_CITIES_PAGING = replace(BY_OFFSET, default_size=100)
+
 #: ``sub-users/``. No size is sent: the spec gives ``per_page`` no default and
 #: no maximum, so any number here would be this package inventing a limit and
 #: then reading the server's refusal of it as an empty account.
@@ -365,8 +379,9 @@ class Page:
     ``results`` 1000 on ``locations/zipcodes/`` and 17 and 805 on its two
     groupings, ``payload`` 1 on ``sub-users/``. Only ``isps`` had been measured
     before that, on 2026-09-08; the rest were read off the spec's own response
-    schemas. ``data`` on ``statistics/domains/`` is still schema-only, because
-    that endpoint needs a ``proxy_username`` and a date window to answer at all.
+    schemas. ``data`` on ``statistics/domains/`` was measured on 2026-09-29: a
+    populated list, whose rows are three-element arrays rather than the objects
+    the document declares - see :meth:`Client.domain_statistics`.
 
     A wrong value here yields an empty page rather than raising, so that is the
     failure mode to expect if a grouping endpoint reports no rows on an account
@@ -492,19 +507,23 @@ class Client:
     #
     # The catalogue. Two things it is for, and the second is the interesting one.
     #
-    # It answers "what can I ask for", which is otherwise guesswork: a bad
-    # `country` is answered 407, a bad `region` 406, any `city` 500 and a bad
-    # `isp` 410, and not one of them names the parameter that was wrong. And it
-    # is the data that would fill the `values` table in the
-    # provider TOML, which ships empty because "the data to fill it with does not
-    # exist here" - true of this tree and not true of the product.
+    # It answers "what can I ask for", which is otherwise guesswork: measured
+    # 2026-09-08, a bad `country` is answered 407, a bad `region` 406, a bad
+    # `isp` 406 as well, and a `city` sent without its `region` 500 - and not
+    # one of them names the parameter that was wrong. And it is the data that
+    # would fill the `values` table in the provider TOML, which ships empty
+    # because "the data to fill it with does not exist here" - true of this tree
+    # and not true of the product.
     #
-    # The `city` row is the one this catalogue changed the reading of. Measured
-    # 2026-09-08: `cities()` returns real codes in the gateway's own wire form -
-    # `alexander_city`, `altamonte_springs` - so the 500 that every city value
-    # drew is not a spelling problem, which was one of the two live readings
-    # until then. What it is instead - the account, the pool, or the gateway -
-    # is not established, and the codes to settle it are now in hand.
+    # The `city` row is the one this catalogue changed the reading of. `cities()`
+    # returns real codes in the gateway's own wire form - `alexander_city`,
+    # `altamonte_springs` - and a catalogue city sent with the region the
+    # catalogue files it under opens the tunnel (200, 2026-09-08). The 500 every
+    # earlier city arm drew came from leaving `region` out.
+    #
+    # This block said until 2026-09-29 that any `city` is answered 500 and a bad
+    # `isp` 410, and that the cause of the 500 was not established. Both had been
+    # superseded on 2026-09-08 by the reaction table in the provider TOML.
     #
     # Also measured that day, and it constrains what a city check could look
     # like: **city codes repeat across regions.** `aberdeen`, `albany` and
@@ -584,8 +603,10 @@ class Client:
     def isp_regions(self, **filters: Any) -> Page:
         """Regions that have ISPs, grouped. Needs ``country__code``.
 
-        Rows are under ``regions`` and each carries its own ISP list. Spec
-        shape, never called.
+        Rows are under ``regions`` and each carries its own ISP list. Called
+        through this method on 2026-09-09 by ``--phase 10`` of
+        ``lab/probes/probe_account_api.py``, and ``regions`` named a populated
+        list - see :class:`Page`.
         """
         return self._list(
             f"{API_ROOT}/locations/isps/regions/", filters, rows_key="regions"
@@ -594,10 +615,20 @@ class Client:
     def isp_cities(self, **filters: Any) -> Page:
         """Cities that have ISPs, grouped. Needs ``country__code``.
 
-        Rows are under ``cities``. Spec shape, never called.
+        Rows are under ``cities``. Called through this method on 2026-09-09 by
+        ``--phase 10``, and ``cities`` named a populated list.
+
+        **Pages of 100, not 1000**, because this endpoint takes about 56 seconds
+        to answer 1000 rows and the client's timeout is 30 - see
+        :data:`ISP_CITIES_PAGING`. Use :meth:`iterate` for the collection, and
+        pass ``limit=`` with a longer ``Client(timeout=...)`` if you want fewer,
+        bigger requests.
         """
         return self._list(
-            f"{API_ROOT}/locations/isps/cities/", filters, rows_key="cities"
+            f"{API_ROOT}/locations/isps/cities/",
+            filters,
+            rows_key="cities",
+            paging=ISP_CITIES_PAGING,
         )
 
     def zip_codes(self, **filters: Any) -> Page:
@@ -623,7 +654,8 @@ class Client:
     def zip_code_regions(self, **filters: Any) -> Page:
         """Regions that have ZIP codes, grouped. Needs ``country__code``.
 
-        Rows are under ``regions``. Spec shape, never called.
+        Rows are under ``regions``. Called through this method on 2026-09-09 by
+        ``--phase 10``, and ``regions`` named a populated list.
         """
         return self._list(
             f"{API_ROOT}/locations/zipcodes/regions/", filters, rows_key="regions"
@@ -632,7 +664,8 @@ class Client:
     def zip_code_cities(self, **filters: Any) -> Page:
         """Cities that have ZIP codes, grouped. Needs ``country__code``.
 
-        Rows are under ``cities``. Spec shape, never called.
+        Rows are under ``cities``. Called through this method on 2026-09-09 by
+        ``--phase 10``, and ``cities`` named a populated list.
         """
         return self._list(
             f"{API_ROOT}/locations/zipcodes/cities/", filters, rows_key="cities"
@@ -699,8 +732,15 @@ class Client:
         )
 
     def domain_statistics(self, proxy_username: str, **filters: Any) -> Page:
-        """Usage split by target domain. Rows carry ``domain_name``,
-        ``requests`` and ``data``.
+        """Usage split by target domain.
+
+        **Each row is a three-element array, not an object**, measured
+        2026-09-29 through this method with ``period="today"``: ten rows, each a
+        list of three. The document declares objects with ``domain_name``,
+        ``requests`` and ``data``, and until that run this docstring said the
+        rows carried those keys. Which position holds which of the three was not
+        read - the run printed types and lengths only - so the rows are returned
+        as they arrive and nothing here names their positions.
 
         **Not paginated**, whatever its previous docstring here said. The
         response is ``{"data": [...]}`` with no cursor of any kind, and ``limit``
@@ -729,9 +769,16 @@ class Client:
     # How agencies and resellers actually use a proxy account: one plan, many
     # credentials, a traffic cap on each. This is the part of the API with side
     # effects, and the five methods below are the only ones in this package that
-    # change anything anywhere. **None of the five has ever been called** - each
-    # costs a real object on a production account - so their bodies are the
-    # spec's and nothing more.
+    # change anything anywhere. All five endpoints were sent live on 2026-09-09
+    # by `lab/probes/probe_account_api.py --phase 11`, against an object that run
+    # created and removed; each method's docstring carries what its call
+    # answered. The probe built those requests itself rather than through these
+    # methods, so what is measured is the endpoint, and these methods are pinned
+    # to the same bodies by offline tests.
+    #
+    # This comment said until 2026-09-29 that none of the five had ever been
+    # called, while the docstrings below it had recorded the calls since
+    # 2026-09-09, and it shipped that way in 0.1.4.
     #
     # Every one of them answers with the same envelope:
     # `{success, description, errors, payload}`. `payload` is a list on the
@@ -903,9 +950,15 @@ class Client:
         **Sent live 2026-09-09** with one id: 200, and the payload is a **list**
         where every other envelope on this API carries an object. :meth:`_envelope`
         returns it as it comes, so a caller indexing it by key gets a
-        ``TypeError`` rather than a ``KeyError``. What that list holds was not
-        read - the response body of an endpoint that touches usage records is not
-        something to print - so treat the return value as unknown-shaped.
+        ``TypeError`` rather than a ``KeyError``.
+
+        **The list holds the reset sub-users' full rows, proxy passwords
+        included**, measured 2026-09-29 through this method by
+        ``lab/probes/smoke_client_live.py``, keys only: ``id``,
+        ``is_default_user``, ``is_traffic_limited``, ``proxy_password``,
+        ``proxy_username``, ``traffic_limit``, ``used_traffic``. So the return
+        value is a credential, like :meth:`sub_users` and :meth:`me`; do not log
+        it whole.
         """
         return self._envelope(
             "POST", f"{API_ROOT}/sub-users/reset/usage", body={"ids": list(ids)}
@@ -937,7 +990,14 @@ class Client:
         )
 
     def whitelist_ip(self, ip_id: Any) -> Dict[str, Any]:
-        """One whitelisted address by id."""
+        """One whitelisted address by id - the ``ip_id`` that
+        :meth:`upsert_whitelist_ip` returns.
+
+        Measured 2026-09-29 through this method: an object with the eighteen
+        fields of the document's ``WhitelistIP`` schema and no others, among
+        them ``ip``, ``ports``, ``protocol`` and ``number_of_proxies``. The first
+        response on this API seen to match its document field for field.
+        """
         return self._get(f"{API_ROOT}/whitelist/ip/{_segment(ip_id)}")
 
     def upsert_whitelist_ip(
@@ -1436,7 +1496,30 @@ class Client:
             payload = json.dumps(body).encode("utf-8")
             headers["Content-Type"] = "application/json"
 
-        status, raw = self._transport(method, url, headers, payload)
+        try:
+            status, raw = self._transport(method, url, headers, payload)
+        except OSError as exc:
+            # A timeout or a connection dropped mid-response. Until 2026-09-29
+            # the read half of that reached the caller as a bare `TimeoutError`,
+            # past `except NodeMavenError`: measured live on `isp_cities()`, whose
+            # 1000-row page takes about 56 s against a 30 s default. Caught here
+            # rather than in the default transport so a caller's own transport is
+            # covered too - `requests`' exceptions are `OSError`s as well.
+            # `URLError` is an `OSError` but never gets here: the default
+            # transport has already turned it into an `ApiError`.
+            if isinstance(exc, TimeoutError):
+                # The number is ours only when the transport is ours; a caller's
+                # transport runs on the timeout its own client was built with.
+                ours = getattr(self._transport, "func", None) is _urllib_transport
+                reason = "no complete answer before the timeout" + (
+                    f" of {self._timeout:g} s" if ours else ""
+                )
+            else:
+                reason = f"the connection failed mid-request: {type(exc).__name__}"
+            raise ApiError(
+                f"{method} {url}: {reason}. No status came back, so this says "
+                f"nothing about the API key or the request."
+            ) from exc
         return _interpret(status, raw, method, url)
 
 
@@ -1490,35 +1573,48 @@ def _interpret(status: int, raw: bytes, method: str, url: str) -> Any:
     """
     text = raw.decode("utf-8", "replace").strip()
     parsed: Any = None
+    is_json = False
     if text:
         try:
             parsed = json.loads(text)
+            is_json = True
         except ValueError:
             parsed = text
 
+    where = f"{method} {url}"
     if 200 <= status < 300:
+        if text and not is_json:
+            # This host answers a path it does not serve with 200 and the
+            # dashboard's front end - 6415 bytes of HTML, measured 2026-09-09.
+            # Until 2026-09-29 that reached callers of the write methods as their
+            # return value, so a DELETE to a wrong path reported a delete that
+            # never happened. The read methods refused it only because they
+            # happened to check for a dict or a page afterwards.
+            kind = "HTML" if text.startswith("<") else "text"
+            raise ApiError(
+                f"{where} answered {status} with {len(raw)} bytes of {kind} where "
+                f"JSON was expected. This host answers a path it does not serve "
+                f"with 200 and its web front end, so the status says nothing about "
+                f"whether the call did anything.",
+                status=status,
+                body=parsed,
+            )
         # 204 and an empty 200 are both real answers to a DELETE. An empty dict
         # rather than None, so a caller can index the result of every method
         # without branching on which one they called.
         return parsed if text else {}
 
     detail = _detail(parsed) or f"HTTP {status}"
-    where = f"{method} {url}"
     if status in (401, 403):
-        # The key this API takes is a JWT with an `exp` claim - measured
-        # 2026-09-09, a live one had 1723 seconds left mid-run - so a refusal has
-        # a third cause besides a wrong key and a wrong header form: a key that
-        # was valid when the `Client` was built and is not any more. All three
-        # look identical from here, which is why the clock is named in the
-        # message. Nothing in this module reads `exp` or renews on its own: that
-        # would mean decoding a credential to make a control-flow decision, and
-        # what the token's real lifetime is has not been measured, only how much
-        # of one instance was left.
+        # The key is a JWT with an `exp` claim, and this message told a caller
+        # until 2026-09-29 that an expired one is refused exactly like a wrong
+        # one. Measured that day: a key whose `exp` had passed twenty days
+        # earlier was accepted on every call, reads and writes. So expiry is not
+        # offered as a cause here - it would send the reader after a clock the
+        # server does not look at.
         raise AuthError(
             f"{where} was refused: {detail}. This is the dashboard API key, not "
-            f"the proxy password - check NODEMAVEN_APIKEY. If the key worked "
-            f"earlier in the same process, check its expiry: the key is a JWT "
-            f"and an expired one is refused exactly like a wrong one.",
+            f"the proxy password - check NODEMAVEN_APIKEY.",
             status=status,
             body=parsed,
         )
@@ -1773,4 +1869,11 @@ def _urllib_transport(
         raise ApiError(
             f"{method} {url} never reached the API: {exc.reason}. No status came "
             f"back, so this says nothing about the API key."
+        ) from exc
+    except http.client.HTTPException as exc:
+        # A malformed or truncated response - `IncompleteRead`, `BadStatusLine` -
+        # is not an `OSError`, so `Client._request` would not catch it.
+        raise ApiError(
+            f"{method} {url} answered with something that is not a complete HTTP "
+            f"response: {type(exc).__name__}."
         ) from exc

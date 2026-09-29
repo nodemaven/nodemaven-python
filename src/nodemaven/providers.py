@@ -103,6 +103,25 @@ class Provider:
     source: str = ""
     source_read: str = ""
     notes: str = ""
+    #: Every header name the exit address may arrive under, in the order they
+    #: are tried. ``exit_ip_header`` is the first of them and is kept because it
+    #: was the whole field until 2026-09-29; the two are reconciled on
+    #: construction, so a caller who builds a ``Provider`` by hand may set either.
+    exit_ip_headers: Tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        headers = tuple(self.exit_ip_headers)
+        if not headers and self.exit_ip_header:
+            headers = (self.exit_ip_header,)
+        if headers and self.exit_ip_header not in (None, headers[0]):
+            raise ProviderError(
+                f"provider {self.id!r} names its exit address header as "
+                f"{self.exit_ip_header!r} and as {list(headers)!r}. "
+                f"exit_ip_header is the first entry of exit_ip_headers; give one "
+                f"or make them agree."
+            )
+        object.__setattr__(self, "exit_ip_headers", headers)
+        object.__setattr__(self, "exit_ip_header", headers[0] if headers else None)
 
     def spell(self, name: str) -> str:
         """The name this gateway uses on the wire for a canonical parameter."""
@@ -358,6 +377,24 @@ def load_file(path, provider_id: Optional[str] = None) -> Provider:
     # branch that skipped the port rule. That branch was corrected the same day;
     # correcting it there alone would have left the wrong layer reporting it -
     # the value comes from this file, so the error has to name this file.
+    # A string for one name or a list for several, read in order. Refused when
+    # empty for the same reason an empty `values` list is: a present-but-empty
+    # entry reads as "this gateway reports its exit address" and never finds it.
+    raw_exit = raw.get("exit_ip_header")
+    exit_ip_headers: Tuple[str, ...] = ()
+    if raw_exit is not None:
+        names = [raw_exit] if isinstance(raw_exit, str) else raw_exit
+        if (
+            not isinstance(names, list)
+            or not names
+            or not all(isinstance(name, str) and name for name in names)
+        ):
+            raise ProviderError(
+                f"{path} gives exit_ip_header as {raw_exit!r}. It has to be a "
+                f"header name or a non-empty list of header names."
+            )
+        exit_ip_headers = tuple(names)
+
     port = raw.get("port")
     if port is not None:
         checked = _port_number(str(port))
@@ -383,7 +420,7 @@ def load_file(path, provider_id: Optional[str] = None) -> Provider:
         values=values,
         normalize=normalize,
         connect_reactions=connect_reactions,
-        exit_ip_header=raw.get("exit_ip_header"),
+        exit_ip_headers=exit_ip_headers,
         source=str(raw.get("source", "")),
         source_read=str(raw.get("source_read", "")),
         notes=str(raw.get("notes", "")),
