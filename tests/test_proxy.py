@@ -346,6 +346,20 @@ exit_ip_header = {value}
                 exit_ip_header="X-B", exit_ip_headers=("X-A",),
             )
 
+    def test_a_hand_built_provider_refuses_a_string_where_a_list_goes(self):
+        # `tuple("X-Exit-IP")` is nine one-character names, none of which can
+        # match. Found in review 2026-09-29.
+        with pytest.raises(ProviderError, match="tuple or list"):
+            Provider(
+                id="p", label="P", known_params=frozenset(),
+                exit_ip_headers="X-Exit-IP",
+            )
+        with pytest.raises(ProviderError, match="one header name"):
+            Provider(
+                id="p", label="P", known_params=frozenset(),
+                exit_ip_header=["X-Exit-IP"],
+            )
+
     def test_a_hand_built_provider_refuses_an_empty_exit_header(self):
         # The loader already refused this; the Rust builder did not, and review
         # of the Rust port found it. Carried back so both SDKs agree.

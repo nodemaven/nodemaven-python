@@ -35,7 +35,7 @@
      above the install command, and twelve bullets there push `pip install` off
      the first screen. A nav is the one list a reader is meant to scroll past. -->
 
-[Quickstart](#quickstart) · [Parameters](#parameters) · [Sticky sessions](#sticky-sessions) · [Errors](#errors) · [Account API](#account-api) · [Other gateways](#other-gateways) · [Documentation](#documentation)
+[Quickstart](#quickstart) · [Sending traffic](#sending-traffic-through-it) · [Parameters](#parameters) · [Sticky sessions](#sticky-sessions) · [Checking a proxy](#checking-a-proxy) · [Errors](#errors) · [Account API](#account-api) · [Other gateways](#other-gateways) · [Documentation](#documentation)
 
 </div>
 

@@ -226,18 +226,23 @@ class TestTheCatalogue:
         api, fake = client((200, {"count": 0, "results": []}))
         getattr(api, method)()
         size = 100 if method == "isp_cities" else DEFAULT_PAGE_SIZE
-        assert f"limit={size}" in fake.url
-        assert "offset=0" in fake.url
+        query = parse_qs(urlsplit(fake.url).query)
+        assert query["limit"] == [str(size)]
+        assert query["offset"] == ["0"]
 
     def test_isp_cities_asks_for_pages_that_fit_the_timeout(self):
         # Measured 2026-09-29: 10 rows in 2.3 s, 100 in 8.3 s, 1000 in 56.0 s,
         # and the 1000-row default timed out at 60 s in three runs. With the
         # shared default this call could not succeed under a 30 s timeout.
+        #
+        # Parsed, not matched as a substring: `limit=100` is a substring of
+        # `limit=1000`, so the first version of this test passed with the old
+        # default too - the trap the test below records, walked into again.
         api, fake = client((200, {"cities": []}))
         api.isp_cities(country__code="us")
-        assert "limit=100" in fake.url
+        assert parse_qs(urlsplit(fake.url).query)["limit"] == ["100"]
         api.isp_cities(country__code="us", limit=1000)
-        assert "limit=1000" in fake.url
+        assert parse_qs(urlsplit(fake.url).query)["limit"] == ["1000"]
 
     def test_a_callers_limit_and_offset_win_over_the_defaults(self):
         # Parsed rather than matched as a substring: `limit=50` is a substring

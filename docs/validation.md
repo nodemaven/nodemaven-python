@@ -127,9 +127,12 @@ the wire by any path.
 
 `type` picks a different pool rather than a filter over one pool. Five requests
 per arm with a fresh `sid` and `country=us`, the login, the password, the target
-and the gateway address held fixed: `type=mobile` drew T-Mobile and Verizon
-Wireless ASNs, while `type=residential` and leaving `type` unset drew Comcast,
-Charter, Windstream and other wireline carriers, with no mobile ASN among them.
+and the gateway address held fixed, 2026-08-26: `type=mobile` drew AS21928
+T-Mobile three times, AS6167 Cellco (Verizon Wireless) and AS7018 (AT&T), while
+`type=residential` and leaving `type` unset drew Comcast, Charter, Windstream,
+Metronet, Fidium, Planet and AS701 - wireline carriers, with no mobile ASN among
+them. AS7018 is AT&T's main network rather than a mobile-only one, so one of the
+five `mobile` draws is not identifiable as mobile from its ASN alone.
 
 Read that as narrowly as it was measured. Five requests an arm separates two
 disjoint sets of carriers; it says nothing about pool size, about whether a

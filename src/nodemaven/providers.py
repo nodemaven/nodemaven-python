@@ -110,6 +110,21 @@ class Provider:
     exit_ip_headers: Tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        # A bare string here would be split into characters by `tuple()` - "X",
+        # "-", "E" ... - and never match a header. Found in review 2026-09-29.
+        if isinstance(self.exit_ip_headers, str) or not isinstance(
+            self.exit_ip_headers, (tuple, list)
+        ):
+            raise ProviderError(
+                f"provider {self.id!r} gives exit_ip_headers as "
+                f"{self.exit_ip_headers!r}. It has to be a tuple or list of header "
+                f"names; for one name, pass exit_ip_header= or a one-item tuple."
+            )
+        if self.exit_ip_header is not None and not isinstance(self.exit_ip_header, str):
+            raise ProviderError(
+                f"provider {self.id!r} gives exit_ip_header as "
+                f"{self.exit_ip_header!r}. It has to be one header name."
+            )
         headers = tuple(self.exit_ip_headers)
         if not headers and self.exit_ip_header:
             headers = (self.exit_ip_header,)
