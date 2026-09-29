@@ -127,7 +127,7 @@ the wire by any path.
 
 `type` picks a different pool rather than a filter over one pool. Five requests
 per arm with a fresh `sid` and `country=us`, the login, the password, the target
-and the gateway address held fixed, 2026-08-26: `type=mobile` drew AS21928
+and the gateway address held fixed: `type=mobile` drew AS21928
 T-Mobile three times, AS6167 Cellco (Verizon Wireless) and AS7018 (AT&T), while
 `type=residential` and leaving `type` unset drew Comcast, Charter, Windstream,
 Metronet, Fidium, Planet and AS701 - wireline carriers, with no mobile ASN among
