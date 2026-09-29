@@ -16,6 +16,7 @@ behind it in [CHANGELOG.md](../CHANGELOG.md).
 
 - [What a wrong value looks like](#what-a-wrong-value-looks-like)
 - [Case and spacing](#case-and-spacing)
+- [What `type` selects](#what-type-selects)
 - [Why a separator in a value is refused](#why-a-separator-in-a-value-is-refused)
 - [Why session ids are hexadecimal](#why-session-ids-are-hexadecimal)
 
@@ -121,6 +122,20 @@ of a space that works here - `username` would emit it raw, `url()` would
 percent-encode it to `%20`, and `playwright()` would hand over a third thing -
 so between the fold and the refusal, no value with whitespace in it can reach
 the wire by any path.
+
+## What `type` selects
+
+`type` picks a different pool rather than a filter over one pool. Five requests
+per arm with a fresh `sid` and `country=us`, the login, the password, the target
+and the gateway address held fixed: `type=mobile` drew T-Mobile and Verizon
+Wireless ASNs, while `type=residential` and leaving `type` unset drew Comcast,
+Charter, Windstream and other wireline carriers, with no mobile ASN among them.
+
+Read that as narrowly as it was measured. Five requests an arm separates two
+disjoint sets of carriers; it says nothing about pool size, about whether a
+residential exit can ever appear under `mobile`, or about any country but `us`.
+The third arm is the one that carries the weight - unset behaves like
+`residential` here, so `type` is not a switch that has to be sent.
 
 ## Why a separator in a value is refused
 
