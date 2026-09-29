@@ -18,7 +18,7 @@ the account API client - a write reporting success on a web page, a timeout
 escaping this package's errors, `isp_cities()` unable to finish at its default -
 found by running the shared SDK specification's cases and a live smoke run
 through `Client` on 2026-09-29, the same day the API client was ported to the
-Rust SDK. That port found two of them.
+Rust SDK.
 
 All of it is a fix or an addition, so the number is a patch. The only way this
 release can change what working code sees is by raising where 0.1.4 silently
