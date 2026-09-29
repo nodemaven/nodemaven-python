@@ -619,6 +619,8 @@ class TestNoAnswerStaysInsideThisPackagesErrors:
         # delivered `x-api-key <key>` to it, and its body came back as the
         # account. Found while porting the client to Rust, whose transport was
         # written to follow no redirect.
+        import time
+
         other, other_server, other_seen = self._serve_recording(
             b"HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\n{\"data\": 777}"
         )
@@ -630,7 +632,6 @@ class TestNoAnswerStaysInsideThisPackagesErrors:
             with pytest.raises(ApiError) as caught:
                 Client("SECRET-KEY", base_url=base, timeout=5.0).me()
             assert caught.value.status == 302
-            import time
             time.sleep(0.2)
             assert other_seen == [], "the redirect target was contacted"
         finally:
