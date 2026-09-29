@@ -602,6 +602,18 @@ class TestNoAnswerStaysInsideThisPackagesErrors:
         finally:
             server.close()
 
+    def test_a_truncated_error_body_on_the_default_transport(self):
+        # The error body is read inside the HTTPError handler, where the sibling
+        # HTTPException clause cannot see what it raises. Found in review.
+        base, server, _ = self._serve_once(
+            b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 100\r\n\r\nshort"
+        )
+        try:
+            with pytest.raises(ApiError, match="not a complete HTTP response"):
+                Client("k", base_url=base, timeout=5.0).me()
+        finally:
+            server.close()
+
     @pytest.mark.parametrize(
         "raised, words",
         [

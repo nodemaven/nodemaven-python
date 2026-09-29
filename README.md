@@ -266,8 +266,9 @@ for identity in proxy.sessions(50):
     queue.put(identity)                 # each one a different exit
 ```
 
-`sessions(n)` draws distinct cryptographically random ids, none of which can
-contain a separator. The measurements behind that rule are in
+`sessions(n)` draws cryptographically random ids, none of which can contain a
+separator. They are distinct **within one call**; two processes each calling
+it are relying on the size of the id space, not on a check. The measurements behind that rule are in
 [docs/validation.md](https://github.com/nodemaven/nodemaven-python/blob/main/docs/validation.md).
 
 ## Checking a proxy

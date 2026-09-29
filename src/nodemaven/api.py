@@ -1869,7 +1869,14 @@ def _urllib_transport(
         with opener.open(request, timeout=timeout) as response:
             return int(response.status), response.read()
     except urllib.error.HTTPError as exc:  # a response, not a failure
-        return int(exc.code), exc.read()
+        # The error body is read inside this handler, and an exception raised in
+        # a handler is not seen by its sibling clauses below - so a truncated
+        # 4xx/5xx escaped as `IncompleteRead` until review caught it on
+        # 2026-09-29. Handled here for that reason.
+        try:
+            return int(exc.code), exc.read()
+        except http.client.HTTPException as broken:
+            raise _not_a_response(method, url, broken) from broken
     except urllib.error.URLError as exc:
         raise ApiError(
             f"{method} {url} never reached the API: {exc.reason}. No status came "
@@ -1878,7 +1885,11 @@ def _urllib_transport(
     except http.client.HTTPException as exc:
         # A malformed or truncated response - `IncompleteRead`, `BadStatusLine` -
         # is not an `OSError`, so `Client._request` would not catch it.
-        raise ApiError(
-            f"{method} {url} answered with something that is not a complete HTTP "
-            f"response: {type(exc).__name__}."
-        ) from exc
+        raise _not_a_response(method, url, exc) from exc
+
+
+def _not_a_response(method: str, url: str, exc: Exception) -> ApiError:
+    return ApiError(
+        f"{method} {url} answered with something that is not a complete HTTP "
+        f"response: {type(exc).__name__}."
+    )
