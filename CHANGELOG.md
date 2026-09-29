@@ -20,9 +20,10 @@ found by running the shared SDK specification's cases and a live smoke run
 through `Client` on 2026-09-29, the same day the API client was ported to the
 Rust SDK.
 
-All of it is a fix or an addition, so the number is a patch. The only way this
-release can change what working code sees is by raising where 0.1.4 silently
-returned a wrong answer.
+All of it is a fix or an addition, so the number is a patch. Where this release
+changes what working code sees, it raises where 0.1.4 silently returned a wrong
+answer - except `check()`'s `exit_ip` under `X-Exit-IP` and `isp_cities()`'s
+default page, which now return a value 0.1.4 could not return.
 
 ### Three rules tightened while porting the API client to Rust
 
