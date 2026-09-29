@@ -142,6 +142,7 @@ import functools
 import http.client
 import json
 import os
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -1507,7 +1508,11 @@ class Client:
             # covered too - `requests`' exceptions are `OSError`s as well.
             # `URLError` is an `OSError` but never gets here: the default
             # transport has already turned it into an `ApiError`.
-            if isinstance(exc, TimeoutError):
+            # `socket.timeout` became an alias of `TimeoutError` in 3.10; on 3.9
+            # it is a separate `OSError` subclass, and CI on 3.9 caught the
+            # first version of this line reporting a timeout as a dropped
+            # connection.
+            if isinstance(exc, (TimeoutError, socket.timeout)):
                 # The number is ours only when the transport is ours; a caller's
                 # transport runs on the timeout its own client was built with.
                 ours = getattr(self._transport, "func", None) is _urllib_transport
