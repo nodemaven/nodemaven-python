@@ -8,7 +8,21 @@ itself is built on: a change to what the gateway is believed to accept carries
 the probe that established it and the date it was run. "The vendor's documentation
 says so" is not one of those, and an entry that rests on it says so outright.
 
-## Unreleased
+## 0.1.5 - 2026-09-29
+
+A patch release, and the first reason for it is a credential: **0.1.4's default
+transport followed redirects and carried the API key to the redirected host.**
+Nothing here says the dashboard has ever redirected an API call, but a key that
+must only reach one host cannot rest on that. The rest are silent failures in
+the account API client - a write reporting success on a web page, a timeout
+escaping this package's errors, `isp_cities()` unable to finish at its default -
+found by running the shared SDK specification's cases and a live smoke run
+through `Client` on 2026-09-29, the same day the API client was ported to the
+Rust SDK. That port found two of them.
+
+All of it is a fix or an addition, so the number is a patch. The only way this
+release can change what working code sees is by raising where 0.1.4 silently
+returned a wrong answer.
 
 ### Three rules tightened while porting the API client to Rust
 
