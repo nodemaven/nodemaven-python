@@ -18,8 +18,11 @@ both SDKs the same day with cases in the shared specification.
 - **An empty `2xx` is an answer only to a `DELETE`.** Every other call is
   answered with JSON, so an empty body on a `GET` became `{}` or an empty page
   and read as "nothing there". It is an `ApiError` now.
-- **`success: false` in a `2xx` is an error whether or not a `payload` is
-  present.** The check used to sit behind the one for `payload`.
+- **In the sub-user write calls, `success: false` in a `2xx` is an error
+  whether or not a `payload` is present.** Those are the calls that unwrap the
+  `{success, payload}` envelope - create, update, delete, usage reset - and the
+  check used to sit behind the one for `payload`. Other calls do not read the
+  flag.
 - **`sessions()` never draws the provider's separator.** A definition
   separating on a hexadecimal digit handed ids containing it to `session()`,
   which refused them, so `sessions()` failed at random. Ids are now drawn from
