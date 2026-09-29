@@ -881,6 +881,18 @@ class TestSessions:
         with pytest.raises(ParamError, match="Raise length"):
             proxy.sessions(255, length=1)
 
+    def test_a_long_id_with_a_hex_digit_separator_is_still_drawn(self):
+        # Found in review: skipping whole ids that carried the separator made
+        # long ids all but impossible - (15/16)**200 for length=100 - and the
+        # draw cap refused a valid call. The alphabet now excludes the separator.
+        proxy = Proxy(
+            login="acct", password="pw", host="gate.example", port=8080,
+            provider=self._separated_by("0"),
+        )
+        batch = proxy.sessions(3, length=100)
+        assert all(len(p.params["sid"]) == 200 for p in batch)
+        assert all("0" not in p.params["sid"] for p in batch)
+
     def test_an_existing_session_id_is_replaced(self):
         proxy = Proxy(login="acct", password="pw", sid="seed")
         assert all(p.params["sid"] != "seed" for p in proxy.sessions(5))

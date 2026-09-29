@@ -20,10 +20,13 @@ both SDKs the same day with cases in the shared specification.
   and read as "nothing there". It is an `ApiError` now.
 - **`success: false` in a `2xx` is an error whether or not a `payload` is
   present.** The check used to sit behind the one for `payload`.
-- **`sessions()` skips ids that contain the provider's separator**, and caps its
-  draws. A definition separating on a hexadecimal digit handed such an id to
-  `session()`, which refused it, so `sessions()` failed at random; and without a
-  cap, a space the separator shrinks below the count would loop forever.
+- **`sessions()` never draws the provider's separator.** A definition
+  separating on a hexadecimal digit handed ids containing it to `session()`,
+  which refused them, so `sessions()` failed at random. Ids are now drawn from
+  the hex digits minus any one-character separator, and a request larger than
+  that smaller id space is refused before anything is drawn. Skipping whole ids
+  instead was tried first and does not scale: with separator `0`, a 200-character
+  id avoids it with probability about 2.5e-6.
 
 ### The API key no longer follows a redirect to another host
 

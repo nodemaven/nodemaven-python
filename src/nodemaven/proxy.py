@@ -326,20 +326,37 @@ class Proxy:
             )
         if length < 1:
             raise ParamError(f"length={length!r} would produce an empty session id.")
-        # Compared in bits and not by computing 16**(2*length), which is a
-        # bignum for a large `length` in Python and an overflow in three of the
-        # four languages this has to hold in. `count.bit_length() > bits` is
-        # exactly `count >= 2**bits`, so the whole space is refused along with
-        # everything past it - one comparison, same answer everywhere.
-        bits = 8 * length
-        if count.bit_length() > bits:
+        # The alphabet is the hex digits minus any single-character separator,
+        # so an id can never contain one. Until 2026-09-29 every hex digit was
+        # drawn and ids carrying the separator were skipped, which works for 12
+        # characters and not for 200: with separator "0", an id of that length
+        # avoids it with probability (15/16)**200, about 2.5e-6, and the draw
+        # cap refused a call that was perfectly possible. Found in review.
+        separators = [
+            s for s in (self._provider.separator, self._provider.pair_separator) if s
+        ]
+        alphabet = "".join(c for c in "0123456789abcdef" if c not in separators)
+        chars = 2 * length
+
+        # The exact size of the space, grown only until it passes `count`, so
+        # no huge power is ever computed - a large `length` would make one a
+        # bignum here and an overflow in three of the four SDK languages.
+        # Drawing without repeating from a space no larger than `count` could
+        # never finish, so that is refused before anything is drawn.
+        space = 1
+        for _ in range(chars):
+            space *= len(alphabet)
+            if space > count:
+                break
+        if space <= count:
             raise ParamError(
                 f"sessions({count!r}, length={length!r}) asks for at least the "
-                f"whole space: {2 * length} hex characters make 2**{bits} "
-                f"distinct ids, and drawing without repeating is what this does. "
-                f"Raise length= rather than count=, and note that ids are only "
-                f"unique within one call - the space has to be large enough for "
-                f"every process that draws from it, not just for this one."
+                f"whole space: {chars} characters from {len(alphabet)} symbols make "
+                f"at most {space} distinct ids, and drawing without repeating is "
+                f"what this does. Raise length= rather than count=, and note that "
+                f"ids are only unique within one call - the space has to be large "
+                f"enough for every process that draws from it, not just for this "
+                f"one."
             )
 
         # Rejection rather than trust. 12 hex characters make a collision within
@@ -348,15 +365,10 @@ class Proxy:
         # workers one exit and looks like a working program. Since a duplicate is
         # detectable in one line, it is detected.
         #
-        # A definition may separate on a hexadecimal character, and an id
-        # carrying it would be refused by `session()`, so those draws are
-        # skipped - found 2026-09-29 in review of the Rust port. Skipping
-        # shrinks the space below what the bound above assumed, so the draws are
-        # capped too: without it, `sessions(255, length=1)` on a gateway
-        # separating on "0" would loop forever over the 225 ids it can produce.
-        separators = [
-            s for s in (self._provider.separator, self._provider.pair_separator) if s
-        ]
+        # A separator longer than one character cannot be kept out by the
+        # alphabet, so an id containing one is skipped, and the draws are capped
+        # for that case alone.
+        long_separators = [s for s in separators if len(s) > 1]
         cap = count * 1000 + 1000
         seen = set()
         out: List["Proxy"] = []
@@ -365,12 +377,12 @@ class Proxy:
             draws += 1
             if draws > cap:
                 raise ParamError(
-                    f"drew {cap} session ids of {2 * length} hex characters and found "
-                    f"only {len(out)} that avoid the separators {separators!r}. "
+                    f"drew {cap} session ids of {chars} characters and found only "
+                    f"{len(out)} that avoid the separators {separators!r}. "
                     f"Raise length=."
                 )
-            session_id = secrets.token_hex(length)
-            if any(s in session_id for s in separators):
+            session_id = "".join(secrets.choice(alphabet) for _ in range(chars))
+            if any(s in session_id for s in long_separators):
                 continue
             if session_id in seen:
                 continue
