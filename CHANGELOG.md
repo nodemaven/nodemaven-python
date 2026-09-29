@@ -10,6 +10,19 @@ says so" is not one of those, and an entry that rests on it says so outright.
 
 ## Unreleased
 
+### The API key no longer follows a redirect to another host
+
+The default transport followed redirects, and `urllib` copies every header onto
+the redirected request - `Authorization` included. Measured 2026-09-29 on two
+loopback servers: a `302` from the first delivered `x-api-key <key>` to the
+second, and the second's body came back from `me()` as the account. Redirects
+are no longer followed; a `3xx` is an `ApiError` carrying its status. Nothing
+here says the dashboard has ever redirected an API call - this is the guard
+for a key that must only ever reach one host.
+
+Found while porting the API client to the Rust SDK, whose transport was written
+to follow no redirect from the start.
+
 ### A write that reached the dashboard's web page no longer reports success
 
 `create_sub_user`, `update_sub_user`, `delete_sub_user`, `reset_sub_user_usage`

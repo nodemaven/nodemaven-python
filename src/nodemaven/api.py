@@ -1862,9 +1862,19 @@ def _urllib_transport(
     set on exactly the machines that use proxies, an API call would be routed
     through a proxy nobody asked to route it through. The empty dict disables
     that. A caller who does want it can pass their own transport.
+
+    ``_NoRedirect`` is load-bearing for the same reason. ``urlopen`` follows a
+    redirect to any host and copies every header onto the new request,
+    ``Authorization`` included - measured 2026-09-29 on two loopback servers:
+    a ``302`` to the second one delivered ``x-api-key <key>`` to it, and its
+    answer came back from :meth:`Client.me` as the account. So a redirect is
+    not followed; the ``3xx`` reaches :func:`_interpret` and is an
+    :class:`ApiError` with its status.
     """
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), _NoRedirect()
+    )
     try:
         with opener.open(request, timeout=timeout) as response:
             return int(response.status), response.read()
@@ -1886,6 +1896,13 @@ def _urllib_transport(
         # A malformed or truncated response - `IncompleteRead`, `BadStatusLine` -
         # is not an `OSError`, so `Client._request` would not catch it.
         raise _not_a_response(method, url, exc) from exc
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Follow no redirect: the request carries the API key in a header."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        return None
 
 
 def _not_a_response(method: str, url: str, exc: Exception) -> ApiError:

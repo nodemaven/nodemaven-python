@@ -614,6 +614,53 @@ class TestNoAnswerStaysInsideThisPackagesErrors:
         finally:
             server.close()
 
+    def test_a_redirect_is_not_followed_so_the_key_stays_home(self):
+        # Measured 2026-09-29 before this fix: a 302 to a second loopback server
+        # delivered `x-api-key <key>` to it, and its body came back as the
+        # account. Found while porting the client to Rust, whose transport was
+        # written to follow no redirect.
+        other, other_server, other_seen = self._serve_recording(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\n{\"data\": 777}"
+        )
+        base, server, _ = self._serve_once(
+            f"HTTP/1.1 302 Found\r\nLocation: {other}/steal\r\n"
+            f"Content-Length: 0\r\n\r\n".encode()
+        )
+        try:
+            with pytest.raises(ApiError) as caught:
+                Client("SECRET-KEY", base_url=base, timeout=5.0).me()
+            assert caught.value.status == 302
+            import time
+            time.sleep(0.2)
+            assert other_seen == [], "the redirect target was contacted"
+        finally:
+            server.close()
+            other_server.close()
+
+    @staticmethod
+    def _serve_recording(reply):
+        """Like ``_serve_once``, but records every request head it receives."""
+        import socket
+        import threading
+
+        server = socket.socket()
+        server.bind(("127.0.0.1", 0))
+        server.listen(4)
+        seen = []
+
+        def run():
+            while True:
+                try:
+                    conn, _ = server.accept()
+                except OSError:
+                    return
+                seen.append(conn.recv(65536))
+                conn.sendall(reply)
+                conn.close()
+
+        threading.Thread(target=run, daemon=True).start()
+        return f"http://127.0.0.1:{server.getsockname()[1]}", server, seen
+
     @pytest.mark.parametrize(
         "raised, words",
         [
