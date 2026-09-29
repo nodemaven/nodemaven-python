@@ -10,6 +10,21 @@ says so" is not one of those, and an entry that rests on it says so outright.
 
 ## Unreleased
 
+### Three rules tightened while porting the API client to Rust
+
+Found by review of the Rust port, which had copied them from here, and fixed in
+both SDKs the same day with cases in the shared specification.
+
+- **An empty `2xx` is an answer only to a `DELETE`.** Every other call is
+  answered with JSON, so an empty body on a `GET` became `{}` or an empty page
+  and read as "nothing there". It is an `ApiError` now.
+- **`success: false` in a `2xx` is an error whether or not a `payload` is
+  present.** The check used to sit behind the one for `payload`.
+- **`sessions()` skips ids that contain the provider's separator**, and caps its
+  draws. A definition separating on a hexadecimal digit handed such an id to
+  `session()`, which refused it, so `sessions()` failed at random; and without a
+  cap, a space the separator shrinks below the count would loop forever.
+
 ### The API key no longer follows a redirect to another host
 
 The default transport followed redirects, and `urllib` copies every header onto

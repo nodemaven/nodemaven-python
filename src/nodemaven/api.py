@@ -1408,8 +1408,11 @@ class Client:
         the server meant.
         """
         answer = self._request(method, path, params=params, body=body)
-        if not isinstance(answer, dict) or "payload" not in answer:
+        if not isinstance(answer, dict):
             return answer
+        # Checked before `payload` is looked for: `success: false` with no
+        # payload is the same disagreement, and it used to come back as a
+        # result. Found 2026-09-29 in review of the Rust port, in both SDKs.
         if answer.get("success") is False:
             raise ApiError(
                 f"{method} {path} answered 2xx with success=false: "
@@ -1418,6 +1421,8 @@ class Client:
                 f"reading the status alone would report this as done.",
                 body=answer,
             )
+        if "payload" not in answer:
+            return answer
         return answer["payload"]
 
     def _list(
@@ -1604,10 +1609,20 @@ def _interpret(status: int, raw: bytes, method: str, url: str) -> Any:
                 status=status,
                 body=parsed,
             )
-        # 204 and an empty 200 are both real answers to a DELETE. An empty dict
-        # rather than None, so a caller can index the result of every method
-        # without branching on which one they called.
-        return parsed if text else {}
+        if not text:
+            # 204 and an empty 200 are real answers to a DELETE, and to nothing
+            # else here: every other call is answered with a JSON body, so an
+            # empty one on a GET would become `{}` or an empty page and read as
+            # "nothing there". Narrowed 2026-09-29 in review of the Rust port,
+            # which had copied the wider rule from here.
+            if method == "DELETE":
+                return {}
+            raise ApiError(
+                f"{where} answered {status} with an empty body where JSON was "
+                f"expected, so there is nothing to read the answer from.",
+                status=status,
+            )
+        return parsed
 
     detail = _detail(parsed) or f"HTTP {status}"
     if status in (401, 403):

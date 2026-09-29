@@ -543,6 +543,21 @@ class TestAnHtmlPageIsNotAnAnswer:
         api, _ = client((204, b""))
         assert api.delete_sub_user("9") == {}
 
+    def test_an_empty_2xx_to_anything_but_a_delete_is_refused(self):
+        # Narrowed 2026-09-29 in review of the Rust port: every call but a
+        # DELETE is answered with JSON, so an empty GET used to become `{}` or
+        # an empty page and read as "nothing there".
+        api, _ = client((200, b""))
+        with pytest.raises(ApiError, match="empty body"):
+            api.me()
+        with pytest.raises(ApiError, match="empty body"):
+            api.countries()
+
+    def test_success_false_without_a_payload_is_refused(self):
+        api, _ = client((200, {"success": False, "description": "no"}))
+        with pytest.raises(ApiError, match="success=false"):
+            api.delete_sub_user("9")
+
     def test_the_message_does_not_carry_the_page(self):
         api, _ = client((200, self.PAGE))
         with pytest.raises(ApiError) as caught:

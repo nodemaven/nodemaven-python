@@ -347,10 +347,31 @@ class Proxy:
         # the wrong standard here: a collision does not raise, it hands two
         # workers one exit and looks like a working program. Since a duplicate is
         # detectable in one line, it is detected.
+        #
+        # A definition may separate on a hexadecimal character, and an id
+        # carrying it would be refused by `session()`, so those draws are
+        # skipped - found 2026-09-29 in review of the Rust port. Skipping
+        # shrinks the space below what the bound above assumed, so the draws are
+        # capped too: without it, `sessions(255, length=1)` on a gateway
+        # separating on "0" would loop forever over the 225 ids it can produce.
+        separators = [
+            s for s in (self._provider.separator, self._provider.pair_separator) if s
+        ]
+        cap = count * 1000 + 1000
         seen = set()
         out: List["Proxy"] = []
+        draws = 0
         while len(out) < count:
+            draws += 1
+            if draws > cap:
+                raise ParamError(
+                    f"drew {cap} session ids of {2 * length} hex characters and found "
+                    f"only {len(out)} that avoid the separators {separators!r}. "
+                    f"Raise length=."
+                )
             session_id = secrets.token_hex(length)
+            if any(s in session_id for s in separators):
+                continue
             if session_id in seen:
                 continue
             seen.add(session_id)

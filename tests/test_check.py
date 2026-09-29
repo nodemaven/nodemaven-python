@@ -849,3 +849,38 @@ class TestSessions:
         # 2**48 identities and no call anyone writes comes near it.
         proxy = Proxy(login="acct", password="pw")
         assert len(proxy.sessions(64)) == 64
+
+    @staticmethod
+    def _separated_by(char):
+        from nodemaven import Provider
+
+        return Provider(
+            id="p", label="P", known_params=frozenset({"sid"}),
+            session_param="sid", separator=char, pair_separator=char,
+        )
+
+    def test_a_separator_that_is_a_hex_digit_is_never_drawn(self):
+        # Found 2026-09-29 in review of the Rust port: an id containing the
+        # separator was handed to `session()`, which refused it, so `sessions()`
+        # failed at random on such a definition.
+        proxy = Proxy(
+            login="acct", password="pw", host="gate.example", port=8080,
+            provider=self._separated_by("a"),
+        )
+        batch = proxy.sessions(200)
+        assert len(batch) == 200
+        assert all("a" not in p.params["sid"] for p in batch)
+
+    def test_a_space_the_separator_shrinks_below_the_count_is_refused(self):
+        # Length 1 with separator "0" leaves 225 usable ids of 256: 255 passes
+        # the size bound and could never finish without the draw cap.
+        proxy = Proxy(
+            login="acct", password="pw", host="gate.example", port=8080,
+            provider=self._separated_by("0"),
+        )
+        with pytest.raises(ParamError, match="Raise length"):
+            proxy.sessions(255, length=1)
+
+    def test_an_existing_session_id_is_replaced(self):
+        proxy = Proxy(login="acct", password="pw", sid="seed")
+        assert all(p.params["sid"] != "seed" for p in proxy.sessions(5))
