@@ -103,7 +103,7 @@ The example below uses `requests`, which this package does **not** install - it
 has no HTTP client of its own and does not want one. Install it alongside:
 
 ```
-pip install nodemaven[requests]
+pip install "nodemaven[requests]"
 ```
 
 ```python

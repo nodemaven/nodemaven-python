@@ -192,7 +192,7 @@ client you already have, that is one function. The example below is `requests`,
 which this package does not install:
 
 ```
-pip install nodemaven[requests]
+pip install "nodemaven[requests]"
 ```
 
 ```python

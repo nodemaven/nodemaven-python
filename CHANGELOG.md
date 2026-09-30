@@ -8,6 +8,17 @@ itself is built on: a change to what the gateway is believed to accept carries
 the probe that established it and the date it was run. "The vendor's documentation
 says so" is not one of those, and an entry that rests on it says so outright.
 
+## Unreleased
+
+### The extras install line is quoted, so it works in zsh
+
+`pip install nodemaven[requests]`, as the README and `docs/api-reference.md`
+printed it, fails on the default macOS shell before pip runs: zsh reads the
+brackets as a glob and answers `zsh: no matches found: nodemaven[requests]`.
+Reproduced 2026-10-01 in a clean Python 3.12 venv from a zsh prompt. Both files
+now print `pip install "nodemaven[requests]"`, which works in zsh, bash and fish,
+and `test_readme.py` refuses an unquoted extra.
+
 ## 0.1.5 - 2026-09-29
 
 A patch release, and the first reason for it is a credential: **0.1.4's default
