@@ -448,7 +448,7 @@ class TestTheExamplesAreInstallable:
         # rather than through a TOML parser, because this suite runs on 3.9 where
         # `tomllib` does not exist and the package's own `tomli` fallback is an
         # optional install.
-        extras = re.findall(r"pip install nodemaven\[([a-z0-9_,-]+)\]", readme)
+        extras = re.findall(r"pip install [\"']?nodemaven\[([a-z0-9_,-]+)\]", readme)
         assert extras, "the README stopped naming an extra, so nothing was checked"
 
         text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
@@ -461,6 +461,17 @@ class TestTheExamplesAreInstallable:
                     f"pyproject.toml declares no such extra"
                 )
 
+
+    def test_an_extra_is_quoted_so_zsh_does_not_glob_it(self, readme: str):
+        # zsh, the default shell on macOS, reads `nodemaven[requests]` as a glob
+        # and answers `no matches found` before pip ever runs. Found 2026-10-01
+        # running the quickstart in a clean venv from a zsh prompt. Quoted, the
+        # same line works in zsh, bash, fish and cmd.
+        bare = re.findall(r"pip install nodemaven\[[^\]]*\]", readme)
+        assert not bare, (
+            f"{bare} is unquoted; zsh globs the brackets and the install fails "
+            f"with `no matches found`. Write it as pip install \"nodemaven[...]\""
+        )
 
 class TestTheReadmeLinksResolveOnPyPI:
     """PyPI renders this file and resolves nothing relative.
