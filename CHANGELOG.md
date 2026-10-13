@@ -8,7 +8,7 @@ itself is built on: a change to what the gateway is believed to accept carries
 the probe that established it and the date it was run. "The vendor's documentation
 says so" is not one of those, and an entry that rests on it says so outright.
 
-## Unreleased
+## 0.1.6 - 2026-10-13
 
 ### The extras install line is quoted, so it works in zsh
 
@@ -19,7 +19,7 @@ Reproduced 2026-10-01 in a clean Python 3.12 venv from a zsh prompt. Both files
 now print `pip install "nodemaven[requests]"`, which works in zsh, bash and fish,
 and `test_readme.py` refuses an unquoted extra.
 
-## Unreleased
+### Errors and wording
 
 - **A rejected API key now reads as the server's own sentence.** The host
   answers a missing or rejected key with
