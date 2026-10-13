@@ -910,8 +910,9 @@ class Client:
         read off the document, which matters more here than on the other writes -
         a DELETE aimed at a path this host does not serve is redirected to a
         not-found page, and a client that follows the redirect gets that page
-        with 200 - the wrong spelling would have looked exactly like a
-        successful delete that left the sub-user in place.
+        with 200. Judged by its status alone, the wrong spelling would look like
+        a successful delete that left the sub-user in place; this client
+        refuses the non-JSON body with :class:`ApiError` instead.
 
         **The row being gone rests on a later read, not on that run.** This
         docstring said "a read-back of the collection no longer found the
