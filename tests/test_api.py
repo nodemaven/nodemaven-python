@@ -484,6 +484,20 @@ class TestTheServersOwnMessageSurvives:
         assert "username: too short; taken" in str(caught.value)
         assert "{" not in str(caught.value)
 
+    def test_the_nested_error_object_reads_as_its_message(self):
+        # The host's answer to a missing or rejected key:
+        # {"error": {"code", "message", "retryable"}}. Flattened, it read as
+        # "error: code: ..., message: ..., retryable: False".
+        api, _ = client((401, {"error": {
+            "code": "authentication_required",
+            "message": "Authentication credentials were not provided.",
+            "retryable": False,
+        }}))
+        with pytest.raises(AuthError) as caught:
+            api.me()
+        assert "Authentication credentials were not provided. (authentication_required)" in str(caught.value)
+        assert "retryable" not in str(caught.value)
+
     def test_a_bare_list_body(self):
         api, _ = client((400, ["first", "second"]))
         with pytest.raises(ApiError, match="first; second"):

@@ -50,10 +50,10 @@ timeout would report that as a network problem.
 
 Measured 2026-09-09. `locations/zip-codes/`, `statistics/` and
 `whitelist-ips/` - three paths this package sent before the vendor's OpenAPI
-specification was read - are answered `200`, `text/html`, 6415 bytes,
-byte-identical to a path invented on the spot as a negative control. The
-dashboard serves its front end for anything it does not route, so **calling a
-path cannot tell you whether the path exists.** If you wrap a path of your own
+specification was read - are redirected (`302`) to `/not-found`, exactly like a
+path invented on the spot as a negative control. A client that follows redirects
+then receives the front end's HTML with `200`, so **a status code alone cannot
+tell you whether the path exists.** If you wrap a path of your own
 against this API, compare its response against a path nobody could have
 implemented rather than against a status code.
 

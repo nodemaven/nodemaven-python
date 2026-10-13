@@ -84,7 +84,8 @@ never called. **Four of the five did not exist.**
 
 * ``locations/zip-codes/``, ``statistics/`` and ``whitelist-ips/`` answered
   **200, text/html, 6415 bytes, byte-identical to a deliberately nonexistent
-  path**. Those three paths were inventions. The real ones are
+  path** - read through a client that followed redirects; the server's own
+  answer is a redirect (``302``) to ``/not-found``. Those three paths were inventions. The real ones are
   ``locations/zipcodes/`` - solid, no separator - ``statistics/data/``,
   ``statistics/requests/``, ``statistics/domains/``, and ``whitelist/ips``.
 * ``statistics/domains/`` is real and answered 404 JSON for a missing argument.
@@ -95,8 +96,9 @@ never called. **Four of the five did not exist.**
   200 schema and not a server defect, which is how it was first written down
   here.
 
-**That host answers an unregistered dashboard path with 200 and the front
-end's HTML.** So *calling a path cannot tell you whether the path exists*, and
+**That host answers an unregistered dashboard path with a redirect (``302``) to ``/not-found``,
+and a client that follows redirects receives the front end's HTML with 200.** So
+*a status code alone cannot tell you whether the path exists*, and
 every probe against it compares a digest against a negative control. This is the
 same defect as the gateway answering 200 to an unknown username parameter and
 dropping it, which is what put ``norotate`` in this package.
@@ -637,9 +639,8 @@ class Client:
 
         **The path is ``locations/zipcodes/``, solid and with no separator.**
         This method sent ``locations/zip-codes/`` until 2026-09-09, transcribed
-        from the vendor's client, and that path does not exist: it answered 200
-        with 6415 bytes of the dashboard's HTML, byte-identical to a path nobody
-        ever registered. There is no naming rule to extrapolate from on this
+        from the vendor's client, and that path does not exist: the server
+        redirects it to ``/not-found``, the page any unregistered path gets. There is no naming rule to extrapolate from on this
         API - ``sub-users`` is hyphenated, ``zipcodes`` is not, ``users/me``
         carries no trailing slash where everything around it does - so a
         spelling that was not read off the spec or a run is a lottery ticket.
@@ -675,9 +676,8 @@ class Client:
     # -- what you used ------------------------------------------------------
     #
     # Three endpoints, not one. This module had a single `statistics()` on
-    # `/statistics/`, transcribed, and that path does not exist - it answered
-    # 200 with the dashboard's HTML on 2026-09-09, the same 6415 bytes a
-    # nonexistent path gets.
+    # `/statistics/`, transcribed, and that path does not exist - the server
+    # redirects it to `/not-found`, as it does any unregistered path.
     #
     # All three require `proxy_username`, which is why it is a positional
     # argument here rather than one more entry in `**filters`: it is the
@@ -867,8 +867,8 @@ class Client:
         **PUT to the collection with the id in the body**, not PATCH to a path
         segment. That is what the spec declares - there is no
         ``sub-users/{id}/`` path at all - and it is what this method sent until
-        2026-09-09. The old spelling would have been a 404 or, on a server that
-        answers unknown paths with its front end, a 200 carrying HTML.
+        2026-09-09. The old spelling is redirected to ``/not-found`` by this
+        server, which this client reports as an :class:`ApiError`.
 
         The body fields are ``proxy_username``, ``proxy_password``,
         ``is_traffic_limited``, ``traffic_limit``, ``used_traffic`` and
@@ -908,9 +908,10 @@ class Client:
         **Sent live 2026-09-09**: 200, with a JSON body where the document
         declares 204. The query-parameter shape is therefore measured rather than
         read off the document, which matters more here than on the other writes -
-        a DELETE aimed at a path this host does not serve is answered 200 with
-        the dashboard's HTML, so the wrong spelling would have looked exactly
-        like a successful delete that left the sub-user in place.
+        a DELETE aimed at a path this host does not serve is redirected to a
+        not-found page, and a client that follows the redirect gets that page
+        with 200 - the wrong spelling would have looked exactly like a
+        successful delete that left the sub-user in place.
 
         **The row being gone rests on a later read, not on that run.** This
         docstring said "a read-back of the collection no longer found the
@@ -972,9 +973,7 @@ class Client:
 
         **The path is ``whitelist/ips`` with no trailing slash.** This module
         sent ``whitelist-ips/`` until 2026-09-09; that path does not exist and
-        answered 200 with 6415 bytes of dashboard HTML, which :func:`_page`
-        would have refused as "neither a page nor a list" - the one of the four
-        invented paths that would have failed loudly rather than quietly.
+        is redirected to ``/not-found``.
 
         Pages by ``page``/``page_size``, from **page 1**. ``page_size`` is sent
         at 100 because the spec's stated default is **5**.
@@ -1594,18 +1593,17 @@ def _interpret(status: int, raw: bytes, method: str, url: str) -> Any:
     where = f"{method} {url}"
     if 200 <= status < 300:
         if text and not is_json:
-            # This host answers a path it does not serve with 200 and the
-            # dashboard's front end - 6415 bytes of HTML, measured 2026-09-09.
-            # Until 2026-09-29 that reached callers of the write methods as their
-            # return value, so a DELETE to a wrong path reported a delete that
-            # never happened. The read methods refused it only because they
-            # happened to check for a dict or a page afterwards.
+            # This host redirects a path it does not serve to a not-found page.
+            # The default transport follows no redirect, but a transport that
+            # does - `requests` by default - receives that page with 200, and
+            # it must not reach a caller as a successful write.
             kind = "HTML" if text.startswith("<") else "text"
             raise ApiError(
                 f"{where} answered {status} with {len(raw)} bytes of {kind} where "
-                f"JSON was expected. This host answers a path it does not serve "
-                f"with 200 and its web front end, so the status says nothing about "
-                f"whether the call did anything.",
+                f"JSON was expected. This host redirects a path it does not serve "
+                f"to a not-found page, and a client that follows the redirect gets "
+                f"that page with 200, so the status says nothing about whether the "
+                f"call did anything.",
                 status=status,
                 body=parsed,
             )
@@ -1671,11 +1669,13 @@ def _interpret(status: int, raw: bytes, method: str, url: str) -> Any:
 def _detail(parsed: Any) -> str:
     """The most useful sentence in an error body, whatever shape it arrived in.
 
-    **This API speaks three error dialects and the spec names all three.**
+    **This API speaks four error dialects; the spec names the first three.**
     ``ErrorResponse`` is ``{"detail": "..."}``, which is Django REST Framework's;
     ``BadRequestErrorResponse`` is ``{"errors": {field: message}}``, a nested
     object under a fixed key; and the sub-user envelope is ``{"success": false,
-    "description": "...", "errors": [...]}``. Only the first was handled until
+    "description": "...", "errors": [...]}``. The fourth is
+    ``{"error": {"code": "...", "message": "...", "retryable": ...}}``, which the
+    host now sends for a missing or rejected key. Only the first was handled until
     2026-09-09, so a 400 from any write endpoint came out as the literal text
     ``errors: {'proxy_username': 'This field is required.'}`` - Python syntax
     shown to somebody debugging an HTTP call.
@@ -1695,6 +1695,12 @@ def _detail(parsed: Any) -> str:
         value = parsed.get(key)
         if isinstance(value, str) and value:
             return value
+
+    error = parsed.get("error")
+    if isinstance(error, dict) and isinstance(error.get("message"), str):
+        code = error.get("code")
+        suffix = f" ({code})" if isinstance(code, str) and code else ""
+        return error["message"] + suffix
 
     nested = parsed.get("errors")
     if isinstance(nested, (dict, list)) and nested:
@@ -1837,8 +1843,9 @@ def _page(body: Any, rows_key: str = "results") -> Page:
         f"a list endpoint answered with {type(body).__name__}, which is neither a "
         f"page nor a list. Either the API changed shape or something other than "
         f"the API answered - a captive portal and a corporate proxy both do this, "
-        f"and so does this API's own host, which answers an unregistered path "
-        f"with 200 and the dashboard's HTML.",
+        f"and so does this API's own host, whose not-found page for an "
+        f"unregistered path arrives with 200 through a client that follows "
+        f"redirects.",
         body=body,
     )
 
