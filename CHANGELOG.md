@@ -8,7 +8,7 @@ itself is built on: a change to what the gateway is believed to accept carries
 the probe that established it and the date it was run. "The vendor's documentation
 says so" is not one of those, and an entry that rests on it says so outright.
 
-## Unreleased
+## 0.1.6 - 2026-10-13
 
 ### The extras install line is quoted, so it works in zsh
 
@@ -18,6 +18,20 @@ brackets as a glob and answers `zsh: no matches found: nodemaven[requests]`.
 Reproduced 2026-10-01 in a clean Python 3.12 venv from a zsh prompt. Both files
 now print `pip install "nodemaven[requests]"`, which works in zsh, bash and fish,
 and `test_readme.py` refuses an unquoted extra.
+
+### Errors and wording
+
+- **A rejected API key now reads as the server's own sentence.** The host
+  answers a missing or rejected key with
+  `{"error": {"code", "message", "retryable"}}`; `AuthError` used to show that
+  object flattened into one line, and now shows the message and the code.
+- **Corrected wording about unregistered paths.** The host redirects a path it
+  does not serve (`302`) to `/not-found`; a client that follows redirects
+  receives that page with `200`. Docstrings and `docs/observed-behavior.md`
+  said the host answered `200` itself. Behaviour is unchanged: the default
+  transport follows no redirect, so such a path is an `ApiError` carrying `302`,
+  and a non-JSON `2xx` from a transport that does follow redirects is still
+  refused.
 
 ## 0.1.5 - 2026-09-29
 
