@@ -1688,8 +1688,7 @@ def _detail(parsed: Any) -> str:
     if isinstance(parsed, str):
         return parsed
     if isinstance(parsed, list):
-        texts = [item for item in parsed if isinstance(item, str)]
-        return "; ".join(texts) if texts else _shape(parsed)
+        return "; ".join(parsed) if _texts(parsed) else _shape(parsed)
     if not isinstance(parsed, dict):
         return ""
 
@@ -1715,19 +1714,22 @@ def _detail(parsed: Any) -> str:
     return _shape(parsed)
 
 
+def _texts(value: Any) -> bool:
+    """A non-empty list of non-empty strings: messages, not data."""
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(i, str) and i for i in value)
+    )
+
+
 def _error_messages(errors: Any) -> bool:
     """What an ``errors`` value may hold to be printed: messages, or a field
     mapped to a message or a list of them. Anything nested deeper is data."""
-
-    def messages(value: Any) -> bool:
-        return isinstance(value, str) or (
-            isinstance(value, list) and bool(value) and all(isinstance(i, str) for i in value)
-        )
-
     if isinstance(errors, list):
-        return all(isinstance(i, str) for i in errors)
+        return _texts(errors)
     if isinstance(errors, dict):
-        return all(messages(v) for v in errors.values())
+        return all((isinstance(v, str) and v) or _texts(v) for v in errors.values())
     return False
 
 
@@ -1741,7 +1743,7 @@ def _field_errors(body: Any) -> bool:
         if isinstance(value, dict):
             if not _field_errors(value):
                 return False
-        elif not (isinstance(value, list) and value and all(isinstance(i, str) for i in value)):
+        elif not _texts(value):
             return False
     return True
 
