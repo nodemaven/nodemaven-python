@@ -1705,14 +1705,30 @@ def _detail(parsed: Any) -> str:
         return error["message"] + suffix
 
     nested = parsed.get("errors")
-    if isinstance(nested, (dict, list)) and nested:
-        return _flatten(nested)
     if isinstance(nested, str) and nested:
         return nested
+    if isinstance(nested, (dict, list)) and nested:
+        return _flatten(nested) if _error_messages(nested) else _shape(nested)
 
     if _field_errors(parsed):
         return _flatten(parsed)
     return _shape(parsed)
+
+
+def _error_messages(errors: Any) -> bool:
+    """What an ``errors`` value may hold to be printed: messages, or a field
+    mapped to a message or a list of them. Anything nested deeper is data."""
+
+    def messages(value: Any) -> bool:
+        return isinstance(value, str) or (
+            isinstance(value, list) and bool(value) and all(isinstance(i, str) for i in value)
+        )
+
+    if isinstance(errors, list):
+        return all(isinstance(i, str) for i in errors)
+    if isinstance(errors, dict):
+        return all(messages(v) for v in errors.values())
+    return False
 
 
 def _field_errors(body: Any) -> bool:

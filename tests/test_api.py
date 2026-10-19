@@ -784,6 +784,11 @@ class TestSubUsers:
         with pytest.raises(ApiError) as caught:
             api.me()
         assert "LIVE-PASSWORD" not in str(caught.value)
+        assert "keys: proxy_password, proxy_username" in str(caught.value)
+        api, _ = client((400, {"errors": {"payload": {"proxy_password": "LIVE-PASSWORD"}}}))
+        with pytest.raises(ApiError) as caught:
+            api.me()
+        assert "LIVE-PASSWORD" not in str(caught.value)
         api, _ = client((500, [{"proxy_password": "LIVE-PASSWORD"}]))
         with pytest.raises(ApiError) as caught:
             api.me()
