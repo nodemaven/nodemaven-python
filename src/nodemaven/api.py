@@ -1688,7 +1688,7 @@ def _detail(parsed: Any) -> str:
     if isinstance(parsed, str):
         return parsed
     if isinstance(parsed, list):
-        return "; ".join(str(item) for item in parsed)
+        return "; ".join(parsed) if _texts(parsed) else _shape(parsed)
     if not isinstance(parsed, dict):
         return ""
 
@@ -1704,12 +1704,62 @@ def _detail(parsed: Any) -> str:
         return error["message"] + suffix
 
     nested = parsed.get("errors")
-    if isinstance(nested, (dict, list)) and nested:
-        return _flatten(nested)
     if isinstance(nested, str) and nested:
         return nested
+    if isinstance(nested, (dict, list)) and nested:
+        return _flatten(nested) if _error_messages(nested) else _shape(nested)
 
-    return _flatten(parsed)
+    if _field_errors(parsed):
+        return _flatten(parsed)
+    return _shape(parsed)
+
+
+def _texts(value: Any) -> bool:
+    """A non-empty list of non-empty strings: messages, not data."""
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(i, str) and i for i in value)
+    )
+
+
+def _error_messages(errors: Any) -> bool:
+    """What an ``errors`` value may hold to be printed: messages, or a field
+    mapped to a message or a list of them. Anything nested deeper is data."""
+    if isinstance(errors, list):
+        return _texts(errors)
+    if isinstance(errors, dict):
+        return all((isinstance(v, str) and v) or _texts(v) for v in errors.values())
+    return False
+
+
+def _field_errors(body: Any) -> bool:
+    """``{field: [message, ...]}``, Django REST Framework's validation shape,
+    possibly nested. Values that are not lists of strings are data, not
+    messages, and data is not printed."""
+    if not isinstance(body, dict) or not body:
+        return False
+    for value in body.values():
+        if isinstance(value, dict):
+            if not _field_errors(value):
+                return False
+        elif not _texts(value):
+            return False
+    return True
+
+
+def _shape(body: Any) -> str:
+    """An answer with no message, described without any of its values.
+
+    The sub-user payload carries ``proxy_password``, so printing an unknown body
+    is printing a live credential into whatever logs the exception.
+    """
+    if isinstance(body, dict):
+        keys = ", ".join(sorted(str(k) for k in body))
+        return f"no message in the answer (keys: {keys})" if keys else "no message in the answer"
+    if isinstance(body, list):
+        return f"no message in the answer (a list of {len(body)})"
+    return "no message in the answer"
 
 
 def _flatten(body: Any) -> str:
