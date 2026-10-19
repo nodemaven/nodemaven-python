@@ -8,6 +8,20 @@ itself is built on: a change to what the gateway is believed to accept carries
 the probe that established it and the date it was run. "The vendor's documentation
 says so" is not one of those, and an entry that rests on it says so outright.
 
+## 0.1.7 - 2026-10-19
+
+### An error never prints a body that has no message
+
+An `ApiError` whose answer carried no message of its own used to quote the whole
+body. The sub-user payload holds `proxy_password`, so an answer with
+`success: false`, an empty description and that payload put the live proxy
+password into the error text, and from there into logs. The text now comes only
+from `detail`, `message`, `error`, `description`, `errors` or field errors
+(`{field: [message]}`); any other body is described by its key names, as in
+`no message in the answer (keys: description, errors, payload, success)`.
+`ApiError.body` still holds the answer as received and can carry credentials, so
+do not log it.
+
 ## 0.1.6 - 2026-10-13
 
 ### The extras install line is quoted, so it works in zsh

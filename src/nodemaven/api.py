@@ -1688,7 +1688,8 @@ def _detail(parsed: Any) -> str:
     if isinstance(parsed, str):
         return parsed
     if isinstance(parsed, list):
-        return "; ".join(str(item) for item in parsed)
+        texts = [item for item in parsed if isinstance(item, str)]
+        return "; ".join(texts) if texts else _shape(parsed)
     if not isinstance(parsed, dict):
         return ""
 
@@ -1709,7 +1710,38 @@ def _detail(parsed: Any) -> str:
     if isinstance(nested, str) and nested:
         return nested
 
-    return _flatten(parsed)
+    if _field_errors(parsed):
+        return _flatten(parsed)
+    return _shape(parsed)
+
+
+def _field_errors(body: Any) -> bool:
+    """``{field: [message, ...]}``, Django REST Framework's validation shape,
+    possibly nested. Values that are not lists of strings are data, not
+    messages, and data is not printed."""
+    if not isinstance(body, dict) or not body:
+        return False
+    for value in body.values():
+        if isinstance(value, dict):
+            if not _field_errors(value):
+                return False
+        elif not (isinstance(value, list) and value and all(isinstance(i, str) for i in value)):
+            return False
+    return True
+
+
+def _shape(body: Any) -> str:
+    """An answer with no message, described without any of its values.
+
+    The sub-user payload carries ``proxy_password``, so printing an unknown body
+    is printing a live credential into whatever logs the exception.
+    """
+    if isinstance(body, dict):
+        keys = ", ".join(sorted(str(k) for k in body))
+        return f"no message in the answer (keys: {keys})" if keys else "no message in the answer"
+    if isinstance(body, list):
+        return f"no message in the answer (a list of {len(body)})"
+    return "no message in the answer"
 
 
 def _flatten(body: Any) -> str:

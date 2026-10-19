@@ -759,6 +759,36 @@ class TestSubUsers:
         with pytest.raises(ApiError, match="success=false"):
             api.create_sub_user("kid", "pw")
 
+    def test_an_answer_without_a_message_never_puts_its_payload_in_the_error(self):
+        # The sub-user payload carries the live proxy password. An answer with
+        # success=false, an empty description and that payload once printed the
+        # password into the error text, which is what ends up in logs.
+        api, _ = client(
+            (
+                200,
+                {
+                    "success": False,
+                    "description": "",
+                    "errors": "",
+                    "payload": {"proxy_username": "u", "proxy_password": "LIVE-PASSWORD"},
+                },
+            )
+        )
+        with pytest.raises(ApiError) as caught:
+            api.update_sub_user("7", traffic_limit=1)
+        assert "LIVE-PASSWORD" not in str(caught.value)
+        assert "keys: description, errors, payload, success" in str(caught.value)
+
+    def test_an_error_body_without_a_message_is_described_by_its_keys(self):
+        api, _ = client((400, {"proxy_username": "u", "proxy_password": "LIVE-PASSWORD"}))
+        with pytest.raises(ApiError) as caught:
+            api.me()
+        assert "LIVE-PASSWORD" not in str(caught.value)
+        api, _ = client((500, [{"proxy_password": "LIVE-PASSWORD"}]))
+        with pytest.raises(ApiError) as caught:
+            api.me()
+        assert "LIVE-PASSWORD" not in str(caught.value)
+
     def test_the_optional_fields_are_omitted_when_unset(self):
         api, fake = client((200, self.ENVELOPE))
         api.create_sub_user("kid", "pw", traffic_limit=1024)

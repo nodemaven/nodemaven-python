@@ -56,6 +56,10 @@ class ApiError(NodeMavenError):
     balancer in front of the API is a real answer and throwing it away is how
     "the API is broken" gets reported for a captive portal.
 
+    ``body`` can hold credentials - the sub-user payload carries
+    ``proxy_password`` - so do not log it. The message never quotes a body that
+    has no message of its own; it names the keys instead.
+
     The API key is **never** in here. It travels in a header and not in the URL
     precisely so that an exception carrying the URL cannot carry the credential,
     and nothing in this module formats it.
