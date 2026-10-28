@@ -25,6 +25,7 @@
      License section at the bottom, absolutely: a relative `](LICENSE)` resolves
      against pypi.org/project/nodemaven/ on the package page and 404s there. -->
 [![license](https://img.shields.io/pypi/l/nodemaven?style=flat-square)](https://opensource.org/licenses/MIT)
+[![2 GB free with code GITHUB](https://img.shields.io/badge/%F0%9F%8E%81%202%20GB%20free-code%20GITHUB-1153FC?style=flat-square)](https://dashboard.nodemaven.com/accounts/signup/?utm_source=github&utm_medium=readme&utm_campaign=sdk_python&utm_content=promo_badge)
 
 <!-- In file order, so the line doubles as a table of contents. `test_readme.py`
      checks every anchor here against a heading that exists; it does not check
@@ -74,7 +75,8 @@ the account you sign in with. The other option there is IP whitelisting, which n
 credentials in the username at all; both are described in
 [authentication methods](https://docs.nodemaven.com/en/articles/9979031-authentication-methods).
 
-No account yet? [Sign up](https://dashboard.nodemaven.com/accounts/signup/?utm_source=github&utm_medium=readme&utm_campaign=sdk_python&utm_content=signup_promo) and enter the code **GITHUB** for 2 GB of free traffic, once per account.
+> [!TIP]
+> 🎁 **2 GB of free traffic.** No account yet? [Sign up](https://dashboard.nodemaven.com/accounts/signup/?utm_source=github&utm_medium=readme&utm_campaign=sdk_python&utm_content=signup_promo) and enter the code **GITHUB**. Once per account.
 
 ```python
 from nodemaven import Proxy
